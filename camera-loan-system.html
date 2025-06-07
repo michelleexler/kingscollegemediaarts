@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shared Camera Equipment Loan System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 40;
+            justify-content: center;
+            align-items: flex-start; /* Align to top */
+            overflow-y: auto;
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div id="app-container" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">Equipment Loan System</h1>
+            <p class="text-gray-600 mt-1">Manage and track all your camera equipment loans. (Shared)</p>
+        </header>
+
+        <!-- Main Grid Layout -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Left Column: Add Equipment & Available List -->
+            <div class="lg:col-span-1 space-y-8">
+                <!-- Add New Equipment Section -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-4">Add New Equipment</h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="equipmentName" class="block text-sm font-medium text-gray-700">Equipment Name</label>
+                            <input type="text" id="equipmentName" placeholder="e.g., Canon EOS R5" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="equipmentCode" class="block text-sm font-medium text-gray-700">Equipment Code / ID</label>
+                            <input type="text" id="equipmentCode" placeholder="e.g., CAM001" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                        </div>
+                         <div>
+                            <label for="equipmentAccessories" class="block text-sm font-medium text-gray-700">Accessories (comma-separated)</label>
+                            <input type="text" id="equipmentAccessories" placeholder="e.g., Battery, Charger, Bag" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="equipmentLocation" class="block text-sm font-medium text-gray-700">Storage Location</label>
+                            <input type="text" id="equipmentLocation" placeholder="e.g., Storeroom A, Shelf 3" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                        </div>
+                        <button id="addEquipmentBtn" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                            Add Equipment
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Available Equipment Section -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-4">Available Equipment</h2>
+                    <div id="availableEquipmentList" class="space-y-3 h-48 overflow-y-auto pr-2">
+                        <p class="text-gray-500">Loading equipment...</p>
+                    </div>
+                </div>
+
+                 <!-- Under Maintenance Section -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-4 text-orange-600">Under Maintenance</h2>
+                    <div id="maintenanceList" class="space-y-3 h-24 overflow-y-auto pr-2">
+                        <p class="text-gray-500">No items are under maintenance.</p>
+                    </div>
+                </div>
+                 <!-- Missing Equipment Section -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-4 text-red-600">Missing Equipment</h2>
+                    <div id="missingList" class="space-y-3 h-24 overflow-y-auto pr-2">
+                        <p class="text-gray-500">No items are missing.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Create Loan & On Loan List -->
+            <div class="lg:col-span-2 space-y-8">
+                <!-- Create New Loan Section -->
+                 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-4">Create New Loan</h2>
+                    <p class="text-sm text-gray-600 mb-4">Select available equipment from the list on the left to add it to a new loan.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         <div class="md:col-span-2">
+                            <label for="studentName" class="block text-sm font-medium text-gray-700">Student Name</label>
+                            <input type="text" id="studentName" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="studentNumber" class="block text-sm font-medium text-gray-700">Student Number</label>
+                            <input type="text" id="studentNumber" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3">
+                        </div>
+                        <div>
+                            <label for="loanDate" class="block text-sm font-medium text-gray-700">Loan Date</label>
+                            <input type="date" id="loanDate" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="dueDate" class="block text-sm font-medium text-gray-700">Due Date</label>
+                            <input type="date" id="dueDate" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                         <h3 class="text-md font-medium text-gray-800">Equipment Selected for Loan:</h3>
+                         <div id="selectedForLoanList" class="mt-2 text-sm text-gray-600 border rounded-lg p-3 min-h-[50px]">
+                            <p>No equipment selected.</p>
+                         </div>
+                    </div>
+                    <div class="mt-6">
+                        <button id="createLoanBtn" class="w-full bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150 ease-in-out disabled:bg-gray-400" disabled>
+                            Proceed to Checklist
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Currently On Loan Section -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-4">Currently On Loan</h2>
+                    <div id="onLoanList" class="space-y-4">
+                         <p class="text-gray-500">Loading loans...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed top-5 right-5 bg-gray-800 text-white py-2 px-5 rounded-lg shadow-lg opacity-0 transition-opacity duration-300 z-50"></div>
+
+    <!-- Checklist Modal -->
+    <div id="checklistModal" class="modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg m-4 animate-fade-in">
+            <h2 id="modalTitle" class="text-2xl font-bold mb-4"></h2>
+            <div id="modalChecklist" class="space-y-3 mb-4"></div>
+            <div>
+                <label for="modalNotes" id="modalNotesLabel" class="block text-sm font-medium text-gray-700 mb-1"></label>
+                <textarea id="modalNotes" rows="3" class="w-full p-2 border border-gray-300 rounded-md"></textarea>
+            </div>
+             <div id="loanOutDetails" class="hidden mt-4 p-3 bg-gray-100 rounded-md">
+                <h3 class="font-semibold">Original Loan-Out Notes:</h3>
+                <p id="loanOutNotesText" class="text-sm text-gray-700 whitespace-pre-wrap"></p>
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button id="modalCancelBtn" class="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                <button id="modalConfirmBtn" class="text-white font-semibold py-2 px-4 rounded-lg"></button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- History Modal -->
+    <div id="historyModal" class="modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl m-4 animate-fade-in">
+            <div class="flex justify-between items-center mb-4">
+                 <h2 id="historyModalTitle" class="text-2xl font-bold">Loan History</h2>
+                 <button id="historyModalCloseBtn" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+            </div>
+            <div id="historyModalContent" class="space-y-4 max-h-[60vh] overflow-y-auto pr-2"></div>
+            <div class="mt-6 pt-4 border-t border-gray-200">
+                <button id="deleteItemBtn" class="bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700 disabled:bg-gray-400">Delete This Item Permanently</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Accessory Management Modal -->
+    <div id="accessoryManagementModal" class="modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg m-4 animate-fade-in">
+            <div class="flex justify-between items-center mb-4">
+                 <h2 id="accessoryManagementTitle" class="text-2xl font-bold">Manage Accessories</h2>
+                 <button id="accessoryManagementCloseBtn" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+            </div>
+            <div id="accessoryManagementList" class="space-y-3"></div>
+        </div>
+    </div>
+
+    <!-- Direct Maintenance/Missing Modal -->
+    <div id="directActionModal" class="modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg m-4 animate-fade-in">
+            <h2 id="directActionModalTitle" class="text-2xl font-bold mb-4"></h2>
+            <div>
+                <label for="directActionNotes" class="block text-sm font-medium text-gray-700 mb-1">Reason / Notes:</label>
+                <textarea id="directActionNotes" rows="4" class="w-full p-2 border border-gray-300 rounded-md"></textarea>
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button id="directActionCancelBtn" class="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                <button id="directActionConfirmBtn" class="text-white font-semibold py-2 px-4 rounded-lg"></button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Maintenance Log Modal -->
+    <div id="maintenanceModal" class="modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg m-4 animate-fade-in">
+            <h2 id="maintenanceModalTitle" class="text-2xl font-bold mb-4">Log Maintenance</h2>
+            <div>
+                <label for="maintenanceNotes" class="block text-sm font-medium text-gray-700 mb-1">Action / Notes (e.g., Lens replaced, new strap attached)</label>
+                <textarea id="maintenanceNotes" rows="4" class="w-full p-2 border border-gray-300 rounded-md"></textarea>
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button id="maintenanceModalCancelBtn" class="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                <button id="maintenanceModalConfirmBtn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700">Complete Maintenance</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Mark as Found Modal -->
+    <div id="foundModal" class="modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg m-4 animate-fade-in">
+            <h2 id="foundModalTitle" class="text-2xl font-bold mb-4">Mark Item as Found</h2>
+            <div>
+                <label for="foundNotes" class="block text-sm font-medium text-gray-700 mb-1">Notes (e.g., Found in classroom 3C, replaced by John D.)</label>
+                <textarea id="foundNotes" rows="4" class="w-full p-2 border border-gray-300 rounded-md"></textarea>
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button id="foundModalCancelBtn" class="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                <button id="foundModalConfirmBtn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700">Mark as Found</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteConfirmModal" class="modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg m-4 animate-fade-in">
+            <h2 class="text-2xl font-bold mb-2 text-red-600">Confirm Deletion</h2>
+            <p class="text-gray-600 mb-4">This action is permanent and cannot be undone. It will delete the item and its entire loan history. To confirm, please type the item's code below.</p>
+            <p class="mb-2">Item Code: <strong id="deleteConfirmCode" class="text-red-700"></strong></p>
+            <input type="text" id="deleteConfirmInput" class="w-full p-2 border border-gray-300 rounded-md" autocomplete="off">
+            <div class="flex justify-end space-x-3 mt-6">
+                <button id="deleteConfirmCancelBtn" class="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                <button id="deleteConfirmFinalBtn" class="bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700 disabled:bg-red-300" disabled>Delete Permanently</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, collection, addDoc, onSnapshot, writeBatch, query, where, getDocs, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'camera-loan-system-shared';
+
+        let db, auth;
+        let selectedEquipmentForLoan = new Map();
+        let allEquipmentMasterList = [];
+        let activeModal = { loan: null, equipment: null, accessoryName: null };
+
+        const addEquipmentBtn = document.getElementById('addEquipmentBtn');
+        const createLoanBtn = document.getElementById('createLoanBtn');
+        const availableEquipmentList = document.getElementById('availableEquipmentList');
+        const maintenanceList = document.getElementById('maintenanceList');
+        const missingList = document.getElementById('missingList');
+        const onLoanList = document.getElementById('onLoanList');
+        const selectedForLoanList = document.getElementById('selectedForLoanList');
+        
+        // Modals
+        const allModals = document.querySelectorAll('.modal-backdrop');
+        const checklistModal = document.getElementById('checklistModal');
+        const historyModal = document.getElementById('historyModal');
+        const maintenanceModal = document.getElementById('maintenanceModal');
+        const foundModal = document.getElementById('foundModal');
+        const deleteConfirmModal = document.getElementById('deleteConfirmModal');
+        const accessoryManagementModal = document.getElementById('accessoryManagementModal');
+        const directActionModal = document.getElementById('directActionModal');
+
+        // Firestore Paths
+        const equipmentCollectionPath = `artifacts/${appId}/public/data/equipment`;
+        const loansCollectionPath = `artifacts/${appId}/public/data/loans`;
+        const historyCollectionPath = `artifacts/${appId}/public/data/loan_history`;
+        const equipmentDocPath = (id) => `artifacts/${appId}/public/data/equipment/${id}`;
+        const loanDocPath = (id) => `artifacts/${appId}/public/data/loans/${id}`;
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `fixed top-5 right-5 text-white py-2 px-5 rounded-lg shadow-lg transition-opacity duration-300 z-50 ${isError ? 'bg-red-600' : 'bg-gray-800'}`;
+            toast.classList.remove('opacity-0');
+            setTimeout(() => { toast.classList.add('opacity-0'); }, 3000);
+        }
+
+        async function initialize() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                onAuthStateChanged(auth, user => { if (user) setupListeners(); });
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+                else await signInAnonymously(auth);
+                document.getElementById('loanDate').valueAsDate = new Date();
+            } catch (error) { showToast("Error connecting to the database.", true); }
+        }
+
+        function setupListeners() {
+            if (!auth.currentUser) return;
+            onSnapshot(collection(db, equipmentCollectionPath), snap => {
+                allEquipmentMasterList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderEquipmentLists();
+            });
+            onSnapshot(collection(db, loansCollectionPath), snap => {
+                renderOnLoanList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            });
+        }
+        
+        function renderEquipmentLists() {
+            renderAvailableEquipmentList();
+            renderMaintenanceList();
+            renderMissingList();
+        }
+
+        function renderList(element, items, emptyText, itemRenderer) {
+            element.innerHTML = items.length === 0 ? `<p class="text-gray-500">${emptyText}</p>` : '';
+            items.forEach(item => itemRenderer(element, item));
+        }
+
+        function renderAvailableEquipmentList() {
+            renderList(availableEquipmentList, allEquipmentMasterList.filter(i => i.status === 'available'), 'No available equipment.', (el, item) => {
+                const isSelected = selectedEquipmentForLoan.has(item.id);
+                const accessoriesInMaint = (item.accessories || []).filter(a => a.status !== 'available').length;
+                const maintWarning = accessoriesInMaint > 0 ? `<p class="text-xs text-orange-600">${accessoriesInMaint} accessory requires attention</p>` : '';
+
+                const div = document.createElement('div');
+                div.className = `p-2 rounded-lg ${isSelected ? 'bg-indigo-100' : 'hover:bg-gray-100'}`;
+                div.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="cursor-pointer flex-grow pr-2" data-item-id="${item.id}">
+                            <p class="font-medium text-gray-800">${item.name}</p>
+                            <p class="text-xs text-gray-500">${item.code}</p>
+                            <p class="text-xs text-gray-500 location-text cursor-pointer hover:text-indigo-600" data-item-id="${item.id}">
+                                Location: ${item.location || 'Not set'}
+                            </p>
+                            ${maintWarning}
+                        </div>
+                        <div class="flex flex-col space-y-1">
+                             <button class="manage-btn text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold py-1 px-2 rounded-md">Manage</button>
+                            <button class="history-btn text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-1 px-2 rounded-md">History</button>
+                        </div>
+                    </div>`;
+                
+                const selectDiv = div.querySelector('.flex-grow');
+                const locationText = div.querySelector('.location-text');
+
+                selectDiv.addEventListener('click', (e) => {
+                    if (e.target !== locationText && !locationText.contains(e.target)) {
+                         toggleEquipmentSelection(item)
+                    }
+                });
+
+                locationText.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    makeLocationEditable(locationText, item.id, item.location || '');
+                });
+
+                div.querySelector('.history-btn').addEventListener('click', (e) => { e.stopPropagation(); openHistoryModal(item.id, item.name, item.status, item.code); });
+                div.querySelector('.manage-btn').addEventListener('click', (e) => { e.stopPropagation(); openAccessoryManagementModal(item); });
+                el.appendChild(div);
+            });
+        }
+        
+        function makeLocationEditable(pElement, itemId, currentLocation) {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentLocation;
+            input.className = 'w-full text-xs p-1 border border-indigo-300 rounded-md';
+            
+            pElement.replaceWith(input);
+            input.focus();
+
+            const saveLocation = async () => {
+                const newLocation = input.value.trim();
+                await updateDoc(doc(db, equipmentDocPath(itemId)), { location: newLocation });
+            };
+
+            input.addEventListener('blur', saveLocation);
+            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+        }
+        
+        function renderMaintenanceList() {
+            const itemsInMaintenance = [];
+            allEquipmentMasterList.forEach(item => {
+                if (item.status === 'under_maintenance') {
+                    itemsInMaintenance.push({ ...item, isFullKit: true });
+                } else if (item.accessories) {
+                    item.accessories.forEach(acc => {
+                        if (acc.status === 'under_maintenance') {
+                            itemsInMaintenance.push({ ...item, accessoryName: acc.name, isFullKit: false });
+                        }
+                    });
+                }
+            });
+
+            renderList(maintenanceList, itemsInMaintenance, 'No items are under maintenance.', (el, item) => {
+                const div = document.createElement('div');
+                div.className = 'p-2 rounded-lg bg-orange-50 flex items-center justify-between';
+                const itemName = item.isFullKit ? item.name : `${item.accessoryName} <span class="text-gray-500">from ${item.code}</span>`;
+                div.innerHTML = `<div><p class="font-medium text-gray-800">${itemName}</p></div><button class="log-maintenance-btn text-xs bg-orange-500 hover:bg-orange-600 text-white font-semibold py-1 px-2 rounded-md">Log Maint.</button>`;
+                div.querySelector('.log-maintenance-btn').addEventListener('click', () => openMaintenanceModal(item));
+                el.appendChild(div);
+            });
+        }
+        
+        function renderMissingList() {
+             const itemsMissing = [];
+            allEquipmentMasterList.forEach(item => {
+                if (item.status === 'missing') {
+                    itemsMissing.push({ ...item, isFullKit: true });
+                } else if (item.accessories) {
+                    item.accessories.forEach(acc => {
+                        if (acc.status === 'missing') {
+                            itemsMissing.push({ ...item, accessoryName: acc.name, isFullKit: false });
+                        }
+                    });
+                }
+            });
+
+            renderList(missingList, itemsMissing, 'No items are missing.', (el, item) => {
+                const div = document.createElement('div');
+                div.className = 'p-2 rounded-lg bg-red-50 flex items-center justify-between';
+                const itemName = item.isFullKit ? item.name : `${item.accessoryName} <span class="text-gray-500">from ${item.code}</span>`;
+                div.innerHTML = `<div><p class="font-medium text-gray-800">${itemName}</p></div><button class="mark-found-btn text-xs bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-2 rounded-md">Found</button>`;
+                div.querySelector('.mark-found-btn').addEventListener('click', () => openFoundModal(item));
+                el.appendChild(div);
+            });
+        }
+
+        function renderOnLoanList(loans) {
+            loans.sort((a, b) => new Date(a.loanDate) - new Date(b.loanDate));
+            renderList(onLoanList, loans, 'No items are currently on loan.', (el, loan) => {
+                const card = document.createElement('div');
+                card.className = 'bg-gray-50 p-4 rounded-lg border border-gray-200 animate-fade-in';
+                const equipmentHtml = loan.equipment.map(e => `<span class="inline-block bg-gray-200 rounded-full px-3 py-1 text-sm font-semibold text-gray-700 mr-2 mb-2">${e.name} (${e.code})</span>`).join('');
+                card.innerHTML = `<div class="flex justify-between items-start"><div><p class="font-bold text-lg">${loan.studentName}</p><p class="text-sm text-gray-600">Student No: ${loan.studentNumber}</p></div><button data-loan-id="${loan.id}" class="return-btn bg-red-500 text-white font-semibold py-1 px-3 rounded-lg hover:bg-red-600 transition-colors text-sm">Initiate Return</button></div><div class="mt-4"><p class="text-sm"><span class="font-semibold">Loaned:</span> ${loan.loanDate}</p><p class="text-sm"><span class="font-semibold">Due:</span> ${loan.dueDate}</p></div><div class="mt-4 pt-4 border-t"><h4 class="font-semibold mb-2">Equipment:</h4><div class="flex flex-wrap">${equipmentHtml}</div></div>`;
+                card.querySelector('.return-btn').addEventListener('click', (e) => {
+                    const foundLoan = loans.find(l => l.id === e.target.dataset.loanId);
+                    if (foundLoan) openChecklistModal('return', foundLoan);
+                });
+                el.appendChild(card);
+            });
+        }
+        
+        function renderSelectedForLoan() {
+            createLoanBtn.disabled = selectedEquipmentForLoan.size === 0;
+            renderList(selectedForLoanList, Array.from(selectedEquipmentForLoan.values()), 'No equipment selected.', (el, item) => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'flex items-center justify-between bg-indigo-50 p-2 rounded-md mb-2';
+                itemDiv.innerHTML = `<span>${item.name} (${item.code})</span><button data-id="${item.id}" class="remove-selection-btn text-red-500 hover:text-red-700 font-bold">&times;</button>`;
+                itemDiv.querySelector('.remove-selection-btn').addEventListener('click', (e) => toggleEquipmentSelection(selectedEquipmentForLoan.get(e.target.dataset.id)));
+                el.appendChild(itemDiv);
+            });
+        }
+
+        function toggleEquipmentSelection(item) {
+            if (selectedEquipmentForLoan.has(item.id)) selectedEquipmentForLoan.delete(item.id);
+            else selectedEquipmentForLoan.set(item.id, item);
+            renderEquipmentLists();
+            renderSelectedForLoan();
+        }
+
+        async function handleAddEquipment() {
+            const name = document.getElementById('equipmentName').value.trim();
+            const code = document.getElementById('equipmentCode').value.trim();
+            const accessoriesStr = document.getElementById('equipmentAccessories').value.trim();
+            const location = document.getElementById('equipmentLocation').value.trim();
+            if (!name || !code) return showToast("Please provide both a name and a code.", true);
+            const accessories = accessoriesStr ? accessoriesStr.split(',').map(s => ({ name: s.trim(), status: 'available' })).filter(a => a.name) : [];
+            try {
+                await addDoc(collection(db, equipmentCollectionPath), { name, code, accessories, status: 'available', location: location });
+                showToast("Equipment added successfully!");
+                ['equipmentName', 'equipmentCode', 'equipmentAccessories', 'equipmentLocation'].forEach(id => document.getElementById(id).value = '');
+            } catch (error) { showToast("Failed to add equipment.", true); }
+        }
+        
+        function openChecklistModal(mode, loanData) {
+            activeModal.loan = loanData;
+            const modalChecklist = document.getElementById('modalChecklist');
+            const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+            const loanOutDetails = document.getElementById('loanOutDetails');
+
+            modalChecklist.innerHTML = '';
+            document.getElementById('modalNotes').value = '';
+            
+            const equipmentToList = mode === 'loan' ? Array.from(selectedEquipmentForLoan.values()) : loanData.equipment;
+
+            equipmentToList.forEach(item => {
+                const fullItemData = allEquipmentMasterList.find(i => i.id === item.id) || item;
+                addChecklistItem(modalChecklist, item.name, 'body', mode, fullItemData);
+                (fullItemData.accessories || []).forEach(acc => {
+                    addChecklistItem(modalChecklist, acc.name, 'accessory', mode, fullItemData, acc);
+                });
+            });
+
+            if (mode === 'loan') {
+                document.getElementById('modalTitle').textContent = 'Loan-Out Checklist';
+                document.getElementById('modalNotesLabel').textContent = 'Notes on condition (scratches, etc.)';
+                modalConfirmBtn.textContent = 'Confirm & Create Loan';
+                modalConfirmBtn.className = 'bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700';
+                modalConfirmBtn.onclick = confirmCreateLoan;
+                loanOutDetails.classList.add('hidden');
+            } else { // Return mode
+                document.getElementById('modalTitle').textContent = `Return for ${loanData.studentName}`;
+                document.getElementById('modalNotesLabel').textContent = 'Notes on return (new damage, missing items, etc.)';
+                modalConfirmBtn.textContent = 'Confirm Return';
+                modalConfirmBtn.className = 'bg-red-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-600';
+                modalConfirmBtn.onclick = () => handleReturnEquipment(loanData);
+                loanOutDetails.classList.remove('hidden');
+                document.getElementById('loanOutNotesText').textContent = loanData.loanOutDetails?.notes || 'No notes were made at loan-out.';
+            }
+            checklistModal.style.display = 'flex';
+        }
+        
+        function addChecklistItem(container, name, type, mode, parentItem, accessory = null) {
+            const div = document.createElement('div');
+            const isLoanReturn = mode === 'return';
+            const isUnavailable = accessory && accessory.status !== 'available';
+            const uniqueId = type === 'body' ? parentItem.id : `${parentItem.id}-${name}`;
+
+            div.innerHTML = `
+                <div class="flex items-center justify-between p-2 rounded-md ${isUnavailable ? 'bg-gray-200' : ''}">
+                    <label class="flex items-center flex-grow ${isUnavailable ? 'text-gray-500 cursor-not-allowed' : ''}">
+                        <input type="checkbox" id="check-${uniqueId}" ${isUnavailable ? 'disabled' : 'checked'} class="h-4 w-4 rounded border-gray-300">
+                        <span class="ml-2 ${isUnavailable ? 'line-through' : ''}">${name} ${isUnavailable ? `(${accessory.status.replace('_', ' ')})` : ''}</span>
+                    </label>
+                    ${isLoanReturn ? `
+                    <div class="flex items-center space-x-4 ml-4">
+                        <label class="flex items-center text-xs">
+                            <input type="checkbox" id="maint-${uniqueId}" class="h-3 w-3 text-orange-600 border-gray-300 rounded focus:ring-orange-500">
+                            <span class="ml-1 text-orange-600">Maintenance</span>
+                        </label>
+                        <label class="flex items-center text-xs">
+                            <input type="checkbox" id="miss-${uniqueId}" class="h-3 w-3 text-red-600 border-gray-300 rounded focus:ring-red-500">
+                            <span class="ml-1 text-red-600">Missing</span>
+                        </label>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        async function confirmCreateLoan() {
+            const equipmentForLoan = Array.from(selectedEquipmentForLoan.values());
+            try {
+                const batch = writeBatch(db);
+                batch.set(doc(collection(db, loansCollectionPath)), {
+                    studentName: document.getElementById('studentName').value.trim(), 
+                    studentNumber: document.getElementById('studentNumber').value.trim(), 
+                    loanDate: document.getElementById('loanDate').value, 
+                    dueDate: document.getElementById('dueDate').value, 
+                    equipment: equipmentForLoan, 
+                    equipmentIds: equipmentForLoan.map(e => e.id),
+                    loanOutDetails: { notes: document.getElementById('modalNotes').value.trim() }, 
+                    createdAt: new Date().toISOString()
+                });
+                equipmentForLoan.forEach(item => batch.update(doc(db, equipmentDocPath(item.id)), { status: 'on_loan' }));
+                await batch.commit();
+                ['studentName', 'studentNumber', 'dueDate'].forEach(id => document.getElementById(id).value = '');
+                selectedEquipmentForLoan.clear();
+                renderSelectedForLoan();
+                showToast("Loan created successfully!");
+                closeModal(checklistModal);
+            } catch (error) { showToast("Failed to create loan.", true); }
+        }
+
+        async function handleReturnEquipment(loanData) {
+            try {
+                const batch = writeBatch(db);
+                batch.set(doc(collection(db, historyCollectionPath)), { ...loanData, returnDetails: { notes: document.getElementById('modalNotes').value.trim(), returnedAt: new Date().toISOString() } });
+                batch.delete(doc(db, loanDocPath(loanData.id)));
+
+                for (const itemInLoan of loanData.equipment) {
+                    const fullItemDoc = allEquipmentMasterList.find(i => i.id === itemInLoan.id);
+                    if (!fullItemDoc) continue;
+
+                    const mainItemMissCheckbox = document.getElementById(`miss-${fullItemDoc.id}`);
+                    const mainItemMaintCheckbox = document.getElementById(`maint-${fullItemDoc.id}`);
+                    
+                    if (mainItemMissCheckbox?.checked) fullItemDoc.status = 'missing';
+                    else if (mainItemMaintCheckbox?.checked) fullItemDoc.status = 'under_maintenance';
+                    else fullItemDoc.status = 'available';
+
+                    if (fullItemDoc.accessories && Array.isArray(fullItemDoc.accessories)) {
+                        fullItemDoc.accessories.forEach(acc => {
+                            const accMissCheckbox = document.getElementById(`miss-${fullItemDoc.id}-${acc.name}`);
+                            const accMaintCheckbox = document.getElementById(`maint-${fullItemDoc.id}-${acc.name}`);
+                            
+                            if (accMissCheckbox?.checked) acc.status = 'missing';
+                            else if (accMaintCheckbox?.checked) acc.status = 'under_maintenance';
+                            else acc.status = 'available';
+                        });
+                    }
+                    
+                    batch.update(doc(db, equipmentDocPath(fullItemDoc.id)), {
+                        status: fullItemDoc.status,
+                        accessories: fullItemDoc.accessories || []
+                    });
+                }
+
+                await batch.commit();
+                showToast(`Equipment return processed.`);
+                closeModal(checklistModal);
+            } catch (error) { 
+                console.error("Error during return process:", error);
+                showToast("Failed to process return.", true);
+            }
+        }
+        
+        async function updateItemOrAccessoryStatus(item, newStatus, notes, accessoryName = null) {
+            try {
+                const batch = writeBatch(db);
+                const equipmentDocRef = doc(db, equipmentDocPath(item.id));
+                const historyNote = `STATUS CHANGE on ${accessoryName || item.name} to ${newStatus.replace('_', ' ')}: ${notes}`;
+                
+                batch.set(doc(collection(db, historyCollectionPath)), { type: 'status_change', equipmentIds: [item.id], equipmentName: item.name, notes: historyNote, completedAt: new Date().toISOString() });
+
+                if (accessoryName) {
+                    const fullItemDoc = allEquipmentMasterList.find(i => i.id === item.id);
+                    const updatedAccessories = fullItemDoc.accessories.map(acc => acc.name === accessoryName ? { ...acc, status: newStatus } : acc);
+                    batch.update(equipmentDocRef, { accessories: updatedAccessories });
+                } else {
+                     batch.update(equipmentDocRef, { status: newStatus });
+                }
+
+                await batch.commit();
+                showToast(`${accessoryName || item.name} flagged as ${newStatus.replace('_', ' ')}.`);
+            } catch (error) {
+                console.error("Status update error:", error);
+                showToast("Failed to update status.", true);
+            }
+        }
+
+        function openDirectActionModal(item, mode) {
+            activeModal.equipment = item;
+            activeModal.accessoryName = null; // Reset accessory name
+            
+            const modal = directActionModal;
+            const title = modal.querySelector('#directActionModalTitle');
+            const confirmBtn = modal.querySelector('#directActionConfirmBtn');
+
+            if (mode === 'maintenance') {
+                title.textContent = `Flag ${item.name} for Maintenance`;
+                confirmBtn.className = 'bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-orange-700';
+                confirmBtn.textContent = 'Flag for Maintenance';
+                confirmBtn.onclick = async () => {
+                    const notes = document.getElementById('directActionNotes').value.trim();
+                    if (!notes) return showToast("Please provide a reason.", true);
+                    await updateItemOrAccessoryStatus(item, 'under_maintenance', notes);
+                    closeModal(modal);
+                };
+            } else { // Missing
+                title.textContent = `Flag ${item.name} as Missing`;
+                confirmBtn.className = 'bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700';
+                confirmBtn.textContent = 'Flag as Missing';
+                 confirmBtn.onclick = async () => {
+                    const notes = document.getElementById('directActionNotes').value.trim();
+                    if (!notes) return showToast("Please provide a reason.", true);
+                    await updateItemOrAccessoryStatus(item, 'missing', notes);
+                    closeModal(modal);
+                };
+            }
+            document.getElementById('directActionNotes').value = '';
+            modal.style.display = 'flex';
+        }
+
+        function openAccessoryManagementModal(item) {
+            activeModal.equipment = item;
+            const listEl = document.getElementById('accessoryManagementList');
+            document.getElementById('accessoryManagementTitle').textContent = `Manage: ${item.name}`;
+            listEl.innerHTML = '';
+
+            // Main Item
+            const mainDiv = document.createElement('div');
+            mainDiv.className = 'p-2 rounded-lg bg-gray-100 flex items-center justify-between';
+            mainDiv.innerHTML = `
+                <span>${item.name} (Main Body) - <span class="capitalize font-medium">${item.status.replace('_', ' ')}</span></span>
+                <div class="flex space-x-1">
+                    <button class="direct-maint-btn text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold py-1 px-2 rounded-md" data-part-type="main">Maint</button>
+                    <button class="direct-miss-btn text-xs bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-1 px-2 rounded-md" data-part-type="main">Miss</button>
+                </div>`;
+            mainDiv.querySelector('.direct-maint-btn').addEventListener('click', () => openDirectActionModal(item, 'maintenance'));
+            mainDiv.querySelector('.direct-miss-btn').addEventListener('click', () => openDirectActionModal(item, 'missing'));
+            listEl.appendChild(mainDiv);
+
+            // Accessories
+            (item.accessories || []).forEach(acc => {
+                const accDiv = document.createElement('div');
+                accDiv.className = 'p-2 flex items-center justify-between border-t';
+                accDiv.innerHTML = `
+                    <span>${acc.name} - <span class="capitalize font-medium">${acc.status.replace('_', ' ')}</span></span>
+                    <div class="flex space-x-1">
+                        <button class="acc-maint-btn text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold py-1 px-2 rounded-md">Maint</button>
+                        <button class="acc-miss-btn text-xs bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-1 px-2 rounded-md">Miss</button>
+                    </div>`;
+                accDiv.querySelector('.acc-maint-btn').addEventListener('click', () => {
+                    activeModal.accessoryName = acc.name;
+                    openDirectActionModal(item, 'maintenance');
+                });
+                accDiv.querySelector('.acc-miss-btn').addEventListener('click', () => {
+                    activeModal.accessoryName = acc.name;
+                    openDirectActionModal(item, 'missing');
+                });
+                listEl.appendChild(accDiv);
+            });
+
+            accessoryManagementModal.style.display = 'flex';
+        }
+
+        
+        function openMaintenanceModal(item) {
+            activeModal.equipment = item;
+            document.getElementById('maintenanceModalTitle').textContent = `Log Maintenance for ${item.isFullKit ? item.name : item.accessoryName}`;
+            document.getElementById('maintenanceNotes').value = '';
+            maintenanceModal.style.display = 'flex';
+        }
+
+        async function handleCompleteMaintenance() {
+            const notes = document.getElementById('maintenanceNotes').value.trim();
+            const item = activeModal.equipment;
+            if (!notes || !item) return showToast("Please enter maintenance notes.", true);
+
+            try {
+                const batch = writeBatch(db);
+                const equipmentDocRef = doc(db, equipmentDocPath(item.id));
+                const historyNote = `Maintenance on: ${item.isFullKit ? item.name : item.accessoryName}. Action: ${notes}`;
+                
+                batch.set(doc(collection(db, historyCollectionPath)), { type: 'maintenance', equipmentIds: [item.id], equipmentName: item.name, notes: historyNote, completedAt: new Date().toISOString() });
+                
+                if (item.isFullKit) {
+                    batch.update(equipmentDocRef, { status: 'available' });
+                } else {
+                    const fullItemDoc = allEquipmentMasterList.find(i => i.id === item.id);
+                    const updatedAccessories = fullItemDoc.accessories.map(acc => acc.name === item.accessoryName ? { ...acc, status: 'available' } : acc);
+                    batch.update(equipmentDocRef, { accessories: updatedAccessories });
+                }
+
+                await batch.commit();
+                showToast(`Maintenance logged for ${item.isFullKit ? item.name : item.accessoryName}.`);
+                closeModal(maintenanceModal);
+            } catch(error) { showToast("Failed to log maintenance.", true); }
+        }
+
+        function openFoundModal(item) {
+            activeModal.equipment = item;
+            document.getElementById('foundModalTitle').textContent = `Mark ${item.isFullKit ? item.name : item.accessoryName} as Found`;
+            document.getElementById('foundNotes').value = '';
+            foundModal.style.display = 'flex';
+        }
+
+        async function handleMarkAsFound() {
+            const notes = document.getElementById('foundNotes').value.trim();
+            const item = activeModal.equipment;
+            if (!item) return;
+
+             try {
+                const batch = writeBatch(db);
+                const equipmentDocRef = doc(db, equipmentDocPath(item.id));
+                const historyNote = `FOUND: ${item.isFullKit ? item.name : item.accessoryName}. Notes: ${notes}`;
+                
+                batch.set(doc(collection(db, historyCollectionPath)), { type: 'status_change', equipmentIds: [item.id], equipmentName: item.name, notes: historyNote, completedAt: new Date().toISOString() });
+                
+                if (item.isFullKit) {
+                    batch.update(equipmentDocRef, { status: 'available' });
+                } else {
+                    const fullItemDoc = allEquipmentMasterList.find(i => i.id === item.id);
+                    const updatedAccessories = fullItemDoc.accessories.map(acc => acc.name === item.accessoryName ? { ...acc, status: 'available' } : acc);
+                    batch.update(equipmentDocRef, { accessories: updatedAccessories });
+                }
+
+                await batch.commit();
+                showToast(`Item marked as found.`);
+                closeModal(foundModal);
+
+            } catch(error) { showToast("Failed to update item status.", true); }
+        }
+
+        async function openHistoryModal(equipmentId, equipmentName, status, code) {
+            activeModal.equipment = {id: equipmentId, name: equipmentName, status: status, code: code};
+            document.getElementById('historyModalTitle').textContent = `Loan History for ${equipmentName}`;
+            document.getElementById('historyModalContent').innerHTML = '<p class="text-gray-500">Loading history...</p>';
+            document.getElementById('deleteItemBtn').disabled = status === 'on_loan';
+            historyModal.style.display = 'flex';
+
+            const q = query(collection(db, historyCollectionPath), where("equipmentIds", "array-contains", equipmentId));
+            const querySnapshot = await getDocs(q);
+            const contentDiv = document.getElementById('historyModalContent');
+            if (querySnapshot.empty) {
+                contentDiv.innerHTML = '<p class="text-gray-500">No history found for this item.</p>';
+                return;
+            }
+            contentDiv.innerHTML = '';
+            querySnapshot.docs
+                .map(d => d.data())
+                .sort((a,b) => new Date(b.createdAt || b.completedAt) - new Date(a.createdAt || a.completedAt))
+                .forEach(record => {
+                    const card = document.createElement('div');
+                    if (record.type === 'maintenance' || record.type === 'status_change') {
+                        card.className = record.type === 'maintenance' ? 'bg-blue-50 p-4 rounded-lg border border-blue-200' : 'bg-green-50 p-4 rounded-lg border border-green-200';
+                        card.innerHTML = `<p class="font-bold text-blue-800">${record.type === 'maintenance' ? 'Maintenance Log' : 'Status Change'}</p><p><strong>Date:</strong> ${new Date(record.completedAt).toLocaleDateString()}</p><div class="mt-2 pt-2 border-t"><p class="font-semibold">Notes:</p><p class="text-sm pl-2 whitespace-pre-wrap">${record.notes||'None'}</p></div>`;
+                    } else {
+                        card.className = 'bg-gray-100 p-4 rounded-lg border';
+                        card.innerHTML = `<p><strong>Student:</strong> ${record.studentName} (${record.studentNumber})</p><p><strong>Period:</strong> ${record.loanDate} to ${record.dueDate}</p><p><strong>Returned:</strong> ${record.returnDetails?.returnedAt ? new Date(record.returnDetails.returnedAt).toLocaleDateString() : 'N/A'}</p><div class="mt-2 pt-2 border-t"><p class="font-semibold">Loan-Out Notes:</p><p class="text-sm pl-2 whitespace-pre-wrap">${record.loanOutDetails?.notes||'None'}</p></div><div class="mt-2 pt-2 border-t"><p class="font-semibold">Return Notes:</p><p class="text-sm pl-2 whitespace-pre-wrap">${record.returnDetails?.notes||'None'}</p></div>`;
+                    }
+                    contentDiv.appendChild(card);
+                });
+        }
+        
+        function closeModal(modal) {
+            modal.style.display = 'none';
+            activeModal = { loan: null, equipment: null, accessoryName: null };
+        }
+
+        // --- Event Listeners ---
+        addEquipmentBtn.addEventListener('click', handleAddEquipment);
+        createLoanBtn.addEventListener('click', () => {
+             if (!document.getElementById('studentName').value.trim() || !document.getElementById('studentNumber').value.trim()) {
+                return showToast("Please enter student details first.", true);
+            }
+            openChecklistModal('loan');
+        });
+
+        allModals.forEach(modal => {
+            const cancelBtn = modal.querySelector('[id$="CancelBtn"], [id$="CloseBtn"]');
+            if(cancelBtn) cancelBtn.addEventListener('click', () => closeModal(modal));
+        });
+
+        document.getElementById('maintenanceModalConfirmBtn').addEventListener('click', handleCompleteMaintenance);
+        document.getElementById('foundModalConfirmBtn').addEventListener('click', handleMarkAsFound);
+        
+        document.getElementById('directActionConfirmBtn').addEventListener('click', async (e) => {
+             const notes = document.getElementById('directActionNotes').value.trim();
+             if (!notes) return showToast("Please provide a reason.", true);
+             
+             const isMaint = e.target.textContent.toLowerCase().includes('maintenance');
+             const newStatus = isMaint ? 'under_maintenance' : 'missing';
+
+             await updateItemOrAccessoryStatus(activeModal.equipment, newStatus, notes, activeModal.accessoryName);
+             closeModal(directActionModal);
+        });
+        
+        document.getElementById('deleteItemBtn').addEventListener('click', () => {
+             const equipment = activeModal.equipment;
+            if (!equipment) return;
+            document.getElementById('deleteConfirmCode').textContent = equipment.code;
+            const confirmInput = document.getElementById('deleteConfirmInput');
+            const confirmBtn = document.getElementById('deleteConfirmFinalBtn');
+            confirmInput.value = '';
+            confirmBtn.disabled = true;
+            confirmInput.oninput = () => { confirmBtn.disabled = confirmInput.value !== equipment.code; };
+            deleteConfirmModal.style.display = 'flex';
+        });
+        document.getElementById('deleteConfirmFinalBtn').addEventListener('click', async () => {
+            const equipment = activeModal.equipment;
+            try {
+                const batch = writeBatch(db);
+                batch.delete(doc(db, equipmentDocPath(equipment.id)));
+                const q = query(collection(db, historyCollectionPath), where("equipmentIds", "array-contains", equipment.id));
+                const historySnapshot = await getDocs(q);
+                historySnapshot.forEach(historyDoc => batch.delete(historyDoc.ref));
+                await batch.commit();
+                showToast(`Successfully deleted ${equipment.name} and all its history.`);
+                closeModal(deleteConfirmModal);
+                closeModal(historyModal);
+            } catch(error) { showToast(`Failed to delete ${equipment.name}.`, true); }
+        });
+        
+        initialize();
+    </script>
+</body>
+</html>
