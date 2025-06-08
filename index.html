@@ -425,8 +425,16 @@
         document.addEventListener('DOMContentLoaded', () => {
 
             // --- Firebase Configuration ---
-            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'camera-loan-system-shared';
+            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+                apiKey: "AIzaSyC5TJD1OHfDRaH8449-rTViuc1ihaPsUK0",
+                authDomain: "camera-equipment-hire-pma.firebaseapp.com",
+                projectId: "camera-equipment-hire-pma",
+                storageBucket: "camera-equipment-hire-pma.appspot.com",
+                messagingSenderId: "263891339773",
+                appId: "1:263891339773:web:1b69db44cd3f683fdd3194",
+                measurementId: "G-X766QG03D3"
+            };
+            const appId = (typeof __app_id !== 'undefined') ? __app_id : 'camera-loan-system-shared';
             const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
             // --- End of Configuration ---
 
