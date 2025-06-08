@@ -252,7 +252,10 @@
                     <h3 class="text-lg font-semibold mb-2">Items on this Loan</h3>
                     <div id="editLoanCurrentItems" class="space-y-2 max-h-48 overflow-y-auto pr-2 border rounded-md p-2"></div>
                 </div>
-
+                <div>
+                    <label for="newDueDate" class="block text-sm font-medium text-gray-700">New Due Date</label>
+                    <input type="date" id="newDueDate" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                </div>
                 <div class="pt-4 border-t">
                     <h3 class="text-lg font-semibold mb-2">Add Kits to Loan</h3>
                     <div id="editLoanAddableItems" class="space-y-2 max-h-48 overflow-y-auto pr-2 border rounded-md p-2"></div>
@@ -1025,6 +1028,7 @@
             function openEditLoanModal(loan) {
                 activeModal.loan = loan;
                 document.getElementById('editLoanModalTitle').textContent = `Edit Loan: ${loan.loanId}`;
+                document.getElementById('newDueDate').value = loan.dueDate;
                 document.getElementById('editLoanNotes').value = '';
         
                 const currentItemsContainer = document.getElementById('editLoanCurrentItems');
@@ -1107,6 +1111,7 @@
             async function handleEditLoan() {
                 const loan = activeModal.loan;
                 const generalNotes = document.getElementById('editLoanNotes').value.trim();
+                const newDueDate = document.getElementById('newDueDate').value;
                 const batch = writeBatch(db);
 
                 const kitsToKeep = [...loan.kits];
@@ -1156,12 +1161,26 @@
                 });
                 
                 const finalKitList = [...kitsToKeep, ...kitsToAdd];
+                
+                // Check for due date change
+                if (newDueDate && newDueDate !== loan.dueDate && finalKitList.length > 0) {
+                    batch.set(doc(collection(db, historyCollectionPath)), {
+                        type: 'loan_extended',
+                        loanId: loan.loanId,
+                        kitIds: finalKitList.map(k => k.id), 
+                        kitId: finalKitList[0]?.id,
+                        notes: `Loan due date changed from ${loan.dueDate} to ${newDueDate}.`,
+                        timestamp: serverTimestamp()
+                    });
+                }
+                
                 if (finalKitList.length === 0) {
                     batch.delete(doc(db, loanDocPath(loan.id)));
                 } else {
                     batch.update(doc(db, loanDocPath(loan.id)), {
                         kits: finalKitList,
                         kitIds: finalKitList.map(k => k.id),
+                        dueDate: newDueDate || loan.dueDate
                     });
                 }
 
@@ -1321,7 +1340,7 @@
                         const historyNote = `Bulk moved from "${kit.location || 'Not set'}" to "${newLocation}".`;
                         batch.set(doc(collection(db, historyCollectionPath)), {
                             type: 'location_change',
-                            kitIds: [kitId],
+                            kitId: kitId,
                             kitName: kit.name,
                             notes: historyNote,
                             timestamp: serverTimestamp()
@@ -1436,6 +1455,28 @@
                             header = `Added to Loan ${record.loanId}`;
                             notes = record.notes ? `<p><strong>Notes:</strong> ${record.notes}</p>` : '';
                             bgColor = 'bg-blue-50'; borderColor = 'border-blue-200'; headerColor = 'text-blue-800';
+                            break;
+                        case 'loan_extended':
+                            header = `Loan Extended`;
+                             notes = record.notes || 'No details provided.';
+                            bgColor = 'bg-purple-50'; borderColor = 'border-purple-200'; headerColor = 'text-purple-800';
+                            break;
+                        case 'loan_edit': // Deprecated, but handled for old data
+                            header = 'Loan Edit';
+                            let detailsHtml = '';
+                            if (record.details) {
+                                if (record.details.returned && record.details.returned.length > 0) {
+                                    detailsHtml += `<p><strong>Returned:</strong> ${record.details.returned.join(', ')}</p>`;
+                                }
+                                if (record.details.added && record.details.added.length > 0) {
+                                    detailsHtml += `<p><strong>Added:</strong> ${record.details.added.join(', ')}</p>`;
+                                }
+                                if (record.details.extended !== 'No change') {
+                                    detailsHtml += `<p><strong>Loan Extended:</strong> ${record.details.extended}</p>`;
+                                }
+                            }
+                            notes = `<p><strong>Notes:</strong> ${record.notes || 'None'}</p>${detailsHtml}`;
+                            bgColor = 'bg-yellow-50'; borderColor = 'border-yellow-200'; headerColor = 'text-yellow-800';
                             break;
                         case 'maintenance':
                         case 'status_change':
