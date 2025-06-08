@@ -432,6 +432,17 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+// Sign in anonymously to test
+signInAnonymously(auth)
+  .then(() => {
+    console.log("✅ Signed in anonymously");
+  })
+  .catch((error) => {
+    console.error("❌ Error signing in:", error);
+  });
 
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'camera-loan-system-shared';
             const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
