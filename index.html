@@ -60,6 +60,7 @@
         <header class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900">Equipment Loan System</h1>
             <p class="text-gray-600 mt-1">Manage and track all your camera equipment loans. (Shared)</p>
+            <p id="userIdDisplay" class="text-xs text-gray-400 mt-2"></p>
         </header>
 
         <div class="space-y-8">
@@ -122,7 +123,7 @@
                                  <div>
                                     <label for="kitItems" class="block text-sm font-medium text-gray-700">Items in Kit (comma-separated)</label>
                                     <input type="text" id="kitItems" placeholder="e.g., Canon R5 Body, 50mm Lens, Battery" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                                </div>
+                                 </div>
                                 <div>
                                     <label for="kitLocation" class="block text-sm font-medium text-gray-700">Storage Location</label>
                                     <input type="text" id="kitLocation" placeholder="e.g., Storeroom A, Shelf 3" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
@@ -420,49 +421,29 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, collection, addDoc, onSnapshot, writeBatch, query, where, getDocs, updateDoc, deleteDoc, runTransaction, increment, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, collection, addDoc, onSnapshot, writeBatch, query, where, getDocs, updateDoc, deleteDoc, runTransaction, increment, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         document.addEventListener('DOMContentLoaded', () => {
 
-            // --- Firebase Configuration ---
-            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-                apiKey: "AIzaSyC5TJD1OHfDRaH8449-rTViuc1ihaPsUK0",
-                authDomain: "camera-equipment-hire-pma.firebaseapp.com",
-                projectId: "camera-equipment-hire-pma",
-                storageBucket: "camera-equipment-hire-pma.appspot.com",
-                messagingSenderId: "263891339773",
-                appId: "1:263891339773:web:1b69db44cd3f683fdd3194",
-                measurementId: "G-X766QG03D3"
-            };
-            const appId = (typeof __app_id !== 'undefined') ? __app_id : 'camera-loan-system-shared';
-            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-            // --- End of Configuration ---
-
-            let db, auth;
-            let selectedItems = new Map();
+            // --- App & Firebase State ---
+            let db, auth, userId, isAuthReady = false;
+            let selectedItems = new Map(); // For new loans
             let allEquipmentMasterList = [];
-            let activeModal = { loan: null, kit: null, itemName: null, checklistData: null };
+            let activeModal = { loan: null, kit: null, itemName: null, checklistData: null, kitsToAdd: null };
             
-            // --- DOM Elements ---
-            const addEquipmentBtn = document.getElementById('addEquipmentBtn');
-            const createLoanBtn = document.getElementById('createLoanBtn');
-            const availableEquipmentList = document.getElementById('availableEquipmentList');
-            const maintenanceList = document.getElementById('maintenanceList');
-            const missingList = document.getElementById('missingList');
-            const onLoanList = document.getElementById('onLoanList');
-            const selectedForLoanList = document.getElementById('selectedForLoanList');
-            const categoryFilter = document.getElementById('categoryFilter');
-            const allModals = document.querySelectorAll('.modal-backdrop');
+            // App-specific ID and Firebase configuration provided by the environment
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
             
-            // Firestore Paths
-            const equipmentCollectionPath = `artifacts/${appId}/public/data/equipment`;
-            const loansCollectionPath = `artifacts/${appId}/public/data/loans`;
-            const historyCollectionPath = `artifacts/${appId}/public/data/loan_history`;
-            const generalItemsCollectionPath = `artifacts/${appId}/public/data/general_items`;
-            const equipmentDocPath = (id) => `artifacts/${appId}/public/data/equipment/${id}`;
-            const loanDocPath = (id) => `artifacts/${appId}/public/data/loans/${id}`;
-            const generalItemDocPath = (id) => `artifacts/${appId}/public/data/general_items/${id}`;
-
+            // --- Firestore Collection Paths ---
+            const getCollectionPath = (collectionName) => `artifacts/${appId}/public/data/${collectionName}`;
+            const equipmentCollectionPath = getCollectionPath("equipment");
+            const loansCollectionPath = getCollectionPath("loans");
+            const historyCollectionPath = getCollectionPath("history");
+            const generalItemsCollectionPath = getCollectionPath("general_items");
+            
+            // --- Toast Notification Utility ---
             function showToast(message, isError = false) {
                 const toast = document.getElementById('toast');
                 toast.textContent = message;
@@ -471,33 +452,41 @@
                 setTimeout(() => { toast.classList.add('opacity-0'); }, 3000);
             }
 
-            function setupEventListeners() {
-                addEquipmentBtn.addEventListener('click', handleAddKit);
-                document.getElementById('addGeneralItemBtn').addEventListener('click', handleAddGeneralItem);
-                createLoanBtn.addEventListener('click', confirmCreateLoan);
-                categoryFilter.addEventListener('change', renderAvailableKitList);
+            // --- Modal Management ---
+            function openModal(modal) {
+                modal.style.display = 'flex';
+            }
 
+            function closeModal(modal) {
+                if(modal) modal.style.display = 'none';
+                activeModal = { loan: null, kit: null, itemName: null, checklistData: null, kitsToAdd: null };
+            }
+
+            // --- Event Listener Setup ---
+            function setupEventListeners() {
+                document.getElementById('addEquipmentBtn').addEventListener('click', handleAddKit);
+                document.getElementById('addGeneralItemBtn').addEventListener('click', handleAddGeneralItem);
+                document.getElementById('createLoanBtn').addEventListener('click', confirmCreateLoan);
+                document.getElementById('categoryFilter').addEventListener('change', renderAvailableKitList);
+                
                 document.getElementById('toggleGeneralItemsBtn').addEventListener('click', () => {
                     document.getElementById('generalItemsWrapper').classList.toggle('hidden');
                     document.getElementById('toggleIconGeneral').classList.toggle('rotate-180');
                 });
-
                 document.getElementById('toggleAddFormBtn').addEventListener('click', () => {
                     document.getElementById('addEquipmentContainer').classList.toggle('hidden');
                     document.getElementById('toggleIconAdd').classList.toggle('rotate-180');
                 });
-        
                 document.getElementById('toggleMaintenanceBtn').addEventListener('click', () => {
                     document.getElementById('maintenanceContainer').classList.toggle('hidden');
                     document.getElementById('toggleIconMaint').classList.toggle('rotate-180');
                 });
-                
                 document.getElementById('toggleMissingBtn').addEventListener('click', () => {
                     document.getElementById('missingContainer').classList.toggle('hidden');
                     document.getElementById('toggleIconMiss').classList.toggle('rotate-180');
                 });
         
-                allModals.forEach(modal => {
+                document.querySelectorAll('.modal-backdrop').forEach(modal => {
                     const cancelBtn = modal.querySelector('[id$="CancelBtn"], [id$="CloseBtn"]');
                     if(cancelBtn) cancelBtn.addEventListener('click', () => closeModal(modal));
                 });
@@ -506,126 +495,118 @@
                 document.getElementById('foundModalConfirmBtn').addEventListener('click', handleMarkAsFound);
                 document.getElementById('editLoanConfirmBtn').addEventListener('click', handleEditLoan);
                 document.getElementById('preLoanChecklistConfirmBtn').addEventListener('click', handlePreLoanChecklistConfirm);
+                document.getElementById('directActionConfirmBtn').addEventListener('click', handleDirectActionConfirm);
+                document.getElementById('deleteConfirmFinalBtn').addEventListener('click', handleDeleteKitPermanently);
+                document.getElementById('generalItemDeleteConfirmBtn').addEventListener('click', handleDeleteGeneralItem);
+                document.getElementById('bulkMoveConfirmBtn').addEventListener('click', handleBulkMove);
 
-                
-                document.getElementById('directActionConfirmBtn').addEventListener('click', async (e) => {
-                    const notes = document.getElementById('directActionNotes').value.trim();
-                    if (!notes) return showToast("Please provide a reason.", true);
-                    
-                    const isMaint = e.target.textContent.toLowerCase().includes('maintenance');
-                    const newStatus = isMaint ? 'under_maintenance' : 'missing';
-        
-                    await updateItemStatus(activeModal.kit, newStatus, notes, activeModal.itemName);
-                    closeModal(document.getElementById('directActionModal'));
-                    closeModal(document.getElementById('accessoryManagementModal'));
-                });
-                
                 document.getElementById('deleteItemBtn').addEventListener('click', () => {
-                    const kit = activeModal.kit;
-                    if (!kit) return;
-                    document.getElementById('deleteConfirmCode').textContent = kit.code;
+                    if (!activeModal.kit) return;
+                    document.getElementById('deleteConfirmCode').textContent = activeModal.kit.code;
                     const confirmInput = document.getElementById('deleteConfirmInput');
                     const confirmBtn = document.getElementById('deleteConfirmFinalBtn');
                     confirmInput.value = '';
                     confirmBtn.disabled = true;
-                    confirmInput.oninput = () => { confirmBtn.disabled = confirmInput.value !== kit.code; };
-                    document.getElementById('deleteConfirmModal').style.display = 'flex';
+                    confirmInput.oninput = () => { confirmBtn.disabled = confirmInput.value !== activeModal.kit.code; };
+                    openModal(document.getElementById('deleteConfirmModal'));
                 });
-
-                document.getElementById('deleteConfirmFinalBtn').addEventListener('click', async () => {
-                    const kit = activeModal.kit;
-                    try {
-                        const batch = writeBatch(db);
-                        batch.delete(doc(db, equipmentDocPath(kit.id)));
-                        const q = query(collection(db, historyCollectionPath), where("kitIds", "array-contains", kit.id));
-                        const historySnapshot = await getDocs(q);
-                        historySnapshot.forEach(historyDoc => batch.delete(historyDoc.ref));
-                        await batch.commit();
-                        showToast(`Successfully deleted ${kit.name} and all its history.`);
-                        closeModal(document.getElementById('deleteConfirmModal'));
-                        closeModal(document.getElementById('historyModal'));
-                    } catch(error) { showToast(`Failed to delete ${kit.name}.`, true); }
-                });
-
-                // --- General Item Delete Modal Listeners ---
-                document.getElementById('generalItemDeleteCancelBtn').addEventListener('click', () => closeModal(document.getElementById('generalItemDeleteConfirmModal')));
-                document.getElementById('generalItemDeleteConfirmBtn').addEventListener('click', handleDeleteGeneralItem);
-
+                 
                 document.getElementById('bulkMoveBtn').addEventListener('click', () => {
                     document.getElementById('bulkMoveModalTitle').textContent = `Bulk Move ${selectedItems.size} Kits`;
-                    document.getElementById('bulkMoveModal').style.display = 'flex';
+                    openModal(document.getElementById('bulkMoveModal'));
                 });
-                document.getElementById('bulkMoveConfirmBtn').addEventListener('click', handleBulkMove);
             }
         
+            // --- Initialization ---
             async function initialize() {
-                // Check if firebaseConfig is populated.
-                if (!firebaseConfig.apiKey) {
-                    showToast("Firebase configuration is missing. Cannot connect to the database.", true);
-                    console.error("Firebase config is empty. Please ensure __firebase_config is provided.");
+                if (!firebaseConfig || !firebaseConfig.apiKey) {
+                    showToast("Firebase configuration is missing. App cannot start.", true);
+                    console.error("CRITICAL: Firebase config is missing or invalid.");
                     return;
                 }
+                
                 try {
                     const app = initializeApp(firebaseConfig);
                     db = getFirestore(app);
                     auth = getAuth(app);
+                    setLogLevel('debug');
 
-                    onAuthStateChanged(auth, user => { 
+                    onAuthStateChanged(auth, (user) => {
                         if (user) {
-                            console.log("Firebase Auth state changed. User is signed in:", user.uid);
-                            setupFirebaseListeners(); 
+                            userId = user.uid;
+                            isAuthReady = true;
+                            document.getElementById('userIdDisplay').textContent = `User ID: ${userId}`;
+                            console.log("Firebase Auth state changed. User is signed in:", userId);
+                            setupFirebaseListeners();
+                        } else if (!isAuthReady) {
+                            isAuthReady = true;
+                            authenticate();
                         }
                     });
 
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
                     document.getElementById('loanDate').valueAsDate = new Date();
-                    setupEventListeners(); // Setup listeners after firebase is ready
-                } catch (error) { 
+                    setupEventListeners();
+                } catch (error) {
                     console.error("Initialization Error:", error);
                     showToast("Error connecting to the database.", true);
                 }
             }
+
+            async function authenticate() {
+                try {
+                    if (initialAuthToken) {
+                        console.log("Signing in with custom token...");
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        console.log("No custom token found, signing in anonymously...");
+                        await signInAnonymously(auth);
+                    }
+                } catch (e) {
+                    console.error("Authentication failed:", e);
+                    showToast("Authentication failed. The app may not work correctly.", true);
+                }
+            }
         
+            // --- Firebase Listeners ---
             function setupFirebaseListeners() {
-                if (!auth.currentUser) return;
-                onSnapshot(collection(db, equipmentCollectionPath), snap => {
+                if (!auth.currentUser) {
+                    console.warn("setupFirebaseListeners called before user is authenticated.");
+                    return;
+                }
+                onSnapshot(query(collection(db, equipmentCollectionPath)), snap => {
                     allEquipmentMasterList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    allEquipmentMasterList.sort((a,b) => a.name.localeCompare(b.name));
                     populateCategoryFilter();
                     renderAllLists();
-                }, (error) => {
-                    console.error("Error listening to equipment collection:", error);
-                    showToast("Error fetching equipment data.", true);
-                });
-                onSnapshot(collection(db, loansCollectionPath), snap => {
-                    renderOnLoanList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                }, (error) => {
-                    console.error("Error listening to loans collection:", error);
-                    showToast("Error fetching loan data.", true);
-                });
-                onSnapshot(collection(db, generalItemsCollectionPath), snap => {
-                    renderGeneralItemsList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                }, (error) => {
-                    console.error("Error listening to general items collection:", error);
-                    showToast("Error fetching general items.", true);
-                });
+                }, (error) => console.error("Error listening to equipment collection:", error));
+                
+                onSnapshot(query(collection(db, loansCollectionPath)), snap => {
+                    const loans = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    renderOnLoanList(loans);
+                }, (error) => console.error("Error listening to loans collection:", error));
+
+                onSnapshot(query(collection(db, generalItemsCollectionPath)), snap => {
+                    const generalItems = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    renderGeneralItemsList(generalItems);
+                }, (error) => console.error("Error listening to general items:", error));
             }
             
+            // --- Dynamic Rendering Functions ---
             function populateCategoryFilter() {
-                const categoryFilter = document.getElementById('categoryFilter');
                 const categories = [...new Set(allEquipmentMasterList.map(item => item.category).filter(Boolean))];
                 const currentSelection = categoryFilter.value;
-                categoryFilter.innerHTML = '<option selected>All Categories</option>';
+                categoryFilter.innerHTML = '<option value="All Categories">All Categories</option>';
                 categories.sort().forEach(cat => {
                     const option = document.createElement('option');
                     option.value = cat;
                     option.textContent = cat;
                     categoryFilter.appendChild(option);
                 });
-                categoryFilter.value = currentSelection;
+                if (categories.includes(currentSelection)) {
+                    categoryFilter.value = currentSelection;
+                } else {
+                    categoryFilter.value = 'All Categories';
+                }
             }
     
             function renderAllLists() {
@@ -634,41 +615,45 @@
                 renderMissingList();
             }
     
-            function renderList(elementId, items, emptyText, itemRenderer) {
-                const element = document.getElementById(elementId);
-                element.innerHTML = items.length === 0 ? `<p class="text-gray-500 p-4">${emptyText}</p>` : '';
-                items.forEach(item => itemRenderer(element, item));
+            function renderList(element, items, emptyText, itemRenderer) {
+                element.innerHTML = '';
+                if (items.length === 0) {
+                    element.innerHTML = `<p class="text-gray-500 p-4">${emptyText}</p>`;
+                } else {
+                    items.forEach(item => itemRenderer(element, item));
+                }
             }
     
             function renderAvailableKitList() {
-                const categoryFilter = document.getElementById('categoryFilter');
                 const selectedCategory = categoryFilter.value;
-                const filteredKits = selectedCategory === 'All Categories'
-                    ? allEquipmentMasterList.filter(kit => kit.status === 'available')
-                    : allEquipmentMasterList.filter(kit => kit.status === 'available' && kit.category === selectedCategory);
+                const filteredKits = allEquipmentMasterList.filter(kit => 
+                    kit.status === 'available' && 
+                    (selectedCategory === 'All Categories' || kit.category === selectedCategory)
+                );
         
-                renderList('availableEquipmentList', filteredKits, 'No available kits in this category.', (el, kit) => {
+                const availableListEl = document.getElementById('availableEquipmentList');
+                renderList(availableListEl, filteredKits, 'No available kits in this category.', (el, kit) => {
                     const isSelected = selectedItems.has(kit.id);
-                    const itemsNeedingAttention = (kit.items || []).filter(i => i.status !== 'available').length > 0;
-                    const unavailable = itemsNeedingAttention;
-                    
-                    const maintWarning = unavailable ? `<p class="text-xs font-semibold text-red-600">Unavailable for Loan (Maintenance Required)</p>` : '';
-                    const categoryTag = kit.category ? `<span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-600 bg-blue-200">${kit.category}</span>` : '';
+                    const itemsNeedingAttention = (kit.items || []).some(i => i.status !== 'available');
                     
                     const div = document.createElement('div');
-                    div.className = `p-2 rounded-lg ${isSelected ? 'bg-indigo-100' : 'hover:bg-gray-100'} ${unavailable ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`;
+                    div.id = `available-kit-${kit.id}`;
+                    div.className = `p-2 rounded-lg transition-colors ${isSelected ? 'bg-indigo-100' : 'hover:bg-gray-100'} ${itemsNeedingAttention ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`;
                     
+                    const categoryTag = kit.category ? `<span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-600 bg-blue-200">${kit.category}</span>` : '';
+                    const maintWarning = itemsNeedingAttention ? `<p class="text-xs font-semibold text-red-600">Unavailable (Maintenance Required)</p>` : '';
+
                     div.innerHTML = `
                         <div class="flex items-center justify-between">
                             <div class="flex items-center flex-grow pr-2">
-                                <input type="checkbox" class="select-checkbox h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-3" data-id="${kit.id}" ${isSelected ? 'checked' : ''} ${unavailable ? 'disabled' : ''}>
+                                <input type="checkbox" class="select-checkbox h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-3" data-id="${kit.id}" ${isSelected ? 'checked' : ''} ${itemsNeedingAttention ? 'disabled' : ''}>
                                 <div>
                                     <div class="flex items-center space-x-2">
                                         <p class="font-medium text-gray-800">${kit.name}</p>
                                         ${categoryTag}
                                     </div>
                                     <p class="text-xs text-gray-500">${kit.code}</p>
-                                    <p class="text-xs text-gray-500 kit-location-text ${!unavailable ? 'cursor-pointer hover:text-indigo-600' : ''}" data-kit-id="${kit.id}">
+                                    <p class="text-xs text-gray-500 kit-location-text ${!itemsNeedingAttention ? 'cursor-pointer hover:text-indigo-600' : ''}" data-kit-id="${kit.id}">
                                         Location: ${kit.location || 'Not set'}
                                     </p>
                                     ${maintWarning}
@@ -679,227 +664,35 @@
                                 <button class="history-btn text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-1 px-2 rounded-md">History</button>
                             </div>
                         </div>`;
-                    
-                    if (!unavailable) {
-                        const checkbox = div.querySelector('.select-checkbox');
-                        div.addEventListener('click', (e) => {
-                            if (e.target.tagName !== 'BUTTON' && !e.target.closest('button')) {
-                                handleSelection(kit);
-                            }
-                        });
-                        checkbox.addEventListener('click', (e) => {
-                            e.stopPropagation(); 
-                            handleSelection(kit);
-                        });
-                        div.querySelector('.kit-location-text').addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            makeKitLocationEditable(e.target, kit.id, kit.location || '');
-                        });
+
+                    if (!itemsNeedingAttention) {
+                         const clickableArea = div.querySelector('.flex.items-center.flex-grow');
+                         clickableArea.addEventListener('click', (e) => {
+                             if (!e.target.closest('button, input[type="checkbox"], .kit-location-text')) {
+                                 handleSelection(kit);
+                             }
+                         });
+                         div.querySelector('.select-checkbox').addEventListener('click', (e) => {
+                             e.stopPropagation();
+                             handleSelection(kit);
+                         });
+                         div.querySelector('.kit-location-text').addEventListener('click', (e) => {
+                             e.stopPropagation();
+                             makeKitLocationEditable(e.target, kit.id, kit.location || '');
+                         });
                     }
-    
-                    div.querySelector('.history-btn').addEventListener('click', (e) => { e.stopPropagation(); openHistoryModal(kit.id, kit.name, kit.status, kit.code); });
+
+                    div.querySelector('.history-btn').addEventListener('click', (e) => { e.stopPropagation(); openHistoryModal(kit); });
                     div.querySelector('.manage-btn').addEventListener('click', (e) => { e.stopPropagation(); openKitManagementModal(kit); });
                     el.appendChild(div);
                 });
                 updateBulkActionsVisibility();
             }
-
-            function renderGeneralItemsList(items) {
-                items.sort((a,b) => a.name.localeCompare(b.name));
-                renderList('generalItemsList', items, 'No general items in inventory.', (el, item) => {
-                    const div = document.createElement('div');
-                    div.className = 'p-3 rounded-lg bg-gray-50 border flex items-center justify-between';
-                    div.innerHTML = `
-                        <div>
-                            <p class="font-medium text-gray-900">${item.name}</p>
-                            <p class="text-xs text-gray-500">In Stock: <span class="font-bold text-lg">${item.quantity}</span></p>
-                            <p class="text-xs text-gray-500">Category: ${item.category || 'N/A'}</p>
-                            <p class="text-xs text-gray-500 general-item-location-text cursor-pointer hover:text-indigo-600" data-item-id="${item.id}">Location: ${item.location || 'N/A'}</p>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <button data-id="${item.id}" class="general-item-decrement text-white bg-red-500 hover:bg-red-600 rounded-full w-8 h-8 font-bold text-xl flex items-center justify-center">-</button>
-                            <button data-id="${item.id}" class="general-item-increment text-white bg-green-500 hover:bg-green-600 rounded-full w-8 h-8 font-bold text-xl flex items-center justify-center">+</button>
-                             <button data-item-id="${item.id}" data-item-name="${item.name}" class="general-item-delete text-gray-400 hover:text-red-500 font-bold text-2xl ml-2">&times;</button>
-                        </div>
-                    `;
-                    el.appendChild(div);
-
-                    div.querySelector('.general-item-increment').addEventListener('click', () => {
-                        updateDoc(doc(db, generalItemDocPath(item.id)), { quantity: increment(1) });
-                    });
-                    div.querySelector('.general-item-decrement').addEventListener('click', () => {
-                        if (item.quantity > 0) {
-                           updateDoc(doc(db, generalItemDocPath(item.id)), { quantity: increment(-1) });
-                        }
-                    });
-                    div.querySelector('.general-item-delete').addEventListener('click', (e) => {
-                        const itemId = e.currentTarget.dataset.itemId;
-                        const itemName = e.currentTarget.dataset.itemName;
-                        activeModal.kit = { id: itemId, name: itemName }; // Use activeModal to pass data
-
-                        const modal = document.getElementById('generalItemDeleteConfirmModal');
-                        document.getElementById('generalItemDeleteConfirmText').textContent = `Are you sure you want to delete all "${itemName}" items from the inventory? This action cannot be undone.`;
-                        modal.style.display = 'flex';
-                    });
-                    div.querySelector('.general-item-location-text').addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        makeGeneralItemLocationEditable(e.currentTarget, item.id, item.location || '');
-                    });
-                });
-            }
-    
-            function updateBulkActionsVisibility() {
-                const bulkSelectCount = document.getElementById('bulkSelectCount');
-                const bulkActionsContainer = document.getElementById('bulkActions');
-                if(selectedItems.size > 0) {
-                    bulkActionsContainer.classList.remove('hidden');
-                    bulkSelectCount.textContent = `${selectedItems.size} selected`;
-                } else {
-                    bulkActionsContainer.classList.add('hidden');
-                    bulkSelectCount.textContent = '';
-                }
-            }
-            
-            async function makeKitLocationEditable(pElement, kitId, currentLocation) {
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = currentLocation;
-                input.className = 'w-full text-xs p-1 border border-indigo-300 rounded-md';
-                
-                pElement.replaceWith(input);
-                input.focus();
-    
-                const saveLocation = async () => {
-                    const newLocation = input.value.trim();
-                    if (newLocation === currentLocation) {
-                        renderAvailableKitList(); 
-                        return;
-                    }
-                    
-                    try {
-                        const batch = writeBatch(db);
-                        const kitDocRef = doc(db, equipmentDocPath(kitId));
-                        const kit = allEquipmentMasterList.find(i => i.id === kitId);
-    
-                        batch.update(kitDocRef, { location: newLocation });
-    
-                        const historyNote = `Location changed from "${currentLocation || 'Not set'}" to "${newLocation}".`;
-                        batch.set(doc(collection(db, historyCollectionPath)), {
-                            type: 'location_change',
-                            kitId: kitId,
-                            kitName: kit.name,
-                            notes: historyNote,
-                            timestamp: serverTimestamp()
-                        });
-    
-                        await batch.commit();
-                        showToast("Kit location updated.");
-                    } catch (error) {
-                        showToast("Failed to update kit location.", true);
-                    }
-                };
-    
-                input.addEventListener('blur', saveLocation);
-                input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
-            }
-
-            async function makeGeneralItemLocationEditable(pElement, itemId, currentLocation) {
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = currentLocation;
-                input.className = 'w-full text-xs p-1 border border-indigo-300 rounded-md';
-                
-                pElement.replaceWith(input);
-                input.focus();
-
-                const saveLocation = async () => {
-                    const newLocation = input.value.trim();
-                    if (newLocation === currentLocation) {
-                        const newP = pElement.cloneNode(true);
-                        newP.textContent = `Location: ${currentLocation || 'Not set'}`;
-                        input.replaceWith(newP);
-                        return;
-                    }
-                    
-                    try {
-                        const itemDocRef = doc(db, generalItemDocPath(itemId));
-                        await updateDoc(itemDocRef, { location: newLocation });
-                        showToast("General item location updated.");
-                    } catch (error) {
-                        console.error("Failed to update general item location:", error);
-                        showToast("Failed to update location.", true);
-                    }
-                };
-
-                input.addEventListener('blur', saveLocation);
-                input.addEventListener('keydown', (e) => { 
-                    if (e.key === 'Enter') {
-                        input.blur();
-                    } else if (e.key === 'Escape') {
-                        input.value = currentLocation;
-                        input.blur();
-                    }
-                });
-            }
-            
-            function renderMaintenanceList() {
-                const itemsInMaintenance = [];
-                allEquipmentMasterList.forEach(kit => {
-                    (kit.items || []).forEach(item => {
-                        if (item.status === 'under_maintenance') {
-                            itemsInMaintenance.push({ ...kit, itemName: item.name });
-                        }
-                    });
-                });
-        
-                renderList('maintenanceList', itemsInMaintenance, 'No items are under maintenance.', (el, item) => {
-                    const div = document.createElement('div');
-                    div.className = 'p-2 rounded-lg bg-orange-50 flex items-center justify-between';
-                    const itemName = `${item.itemName} <span class="text-gray-500">from ${item.name}</span>`;
-                    div.innerHTML = `<div><p class="font-medium text-gray-800">${itemName}</p></div><button class="log-maintenance-btn text-xs bg-orange-500 hover:bg-orange-600 text-white font-semibold py-1 px-2 rounded-md">Log Maint.</button>`;
-                    div.querySelector('.log-maintenance-btn').addEventListener('click', () => openMaintenanceModal(item));
-                    el.appendChild(div);
-                });
-            }
-            
-            function renderMissingList() {
-                const itemsMissing = [];
-                allEquipmentMasterList.forEach(kit => {
-                    (kit.items || []).forEach(item => {
-                        if (item.status === 'missing') {
-                            itemsMissing.push({ ...kit, itemName: item.name });
-                        }
-                    });
-                });
-        
-                renderList('missingList', itemsMissing, 'No items are missing.', (el, item) => {
-                    const div = document.createElement('div');
-                    div.className = 'p-2 rounded-lg bg-red-50 flex items-center justify-between';
-                    const itemName = `${item.itemName} <span class="text-gray-500">from ${item.name}</span>`;
-                    div.innerHTML = `<div><p class="font-medium text-gray-800">${itemName}</p></div><button class="mark-found-btn text-xs bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-2 rounded-md">Found</button>`;
-                    div.querySelector('.mark-found-btn').addEventListener('click', () => openFoundModal(item));
-                    el.appendChild(div);
-                });
-            }
-    
-            function renderOnLoanList(loans) {
-                loans.sort((a, b) => new Date(a.loanDate) - new Date(b.loanDate));
-                renderList('onLoanList', loans, 'No kits are currently on loan.', (el, loan) => {
-                    const card = document.createElement('div');
-                    card.className = 'bg-gray-50 p-4 rounded-lg border border-gray-200 animate-fade-in';
-                    const equipmentHtml = loan.kits.map(k => `<span class="inline-block bg-gray-200 rounded-full px-3 py-1 text-sm font-semibold text-gray-700 mr-2 mb-2">${k.name} (${k.code})</span>`).join('');
-                    card.innerHTML = `<div class="flex justify-between items-start"><div><p class="font-bold text-lg">Loan ID: ${loan.loanId}</p></div><button data-loan-id="${loan.id}" class="manage-loan-btn bg-blue-500 text-white font-semibold py-1 px-3 rounded-lg hover:bg-blue-600 transition-colors text-sm">Manage Loan</button></div><div class="mt-4"><p class="text-sm"><span class="font-semibold">Loaned:</span> ${loan.loanDate}</p><p class="text-sm"><span class="font-semibold">Due:</span> ${loan.dueDate}</p></div><div class="mt-4 pt-4 border-t"><h4 class="font-semibold mb-2">Kits:</h4><div class="flex flex-wrap">${equipmentHtml}</div></div>`;
-                    card.querySelector('.manage-loan-btn').addEventListener('click', (e) => {
-                        const foundLoan = loans.find(l => l.id === e.target.dataset.loanId);
-                        if (foundLoan) openEditLoanModal(foundLoan);
-                    });
-                    el.appendChild(card);
-                });
-            }
             
             function renderSelectedForLoan() {
                 document.getElementById('createLoanBtn').disabled = selectedItems.size === 0;
-                renderList('selectedForLoanList', Array.from(selectedItems.values()), 'No kits selected.', (el, itemData) => {
+                const selectedListEl = document.getElementById('selectedForLoanList');
+                renderList(selectedListEl, Array.from(selectedItems.values()), 'No kits selected.', (el, itemData) => {
                     const itemDiv = document.createElement('div');
                     itemDiv.className = 'flex items-center justify-between bg-indigo-50 p-2 rounded-md mb-2';
                     itemDiv.innerHTML = `
@@ -918,7 +711,180 @@
                     el.appendChild(itemDiv);
                 });
             }
-    
+
+            function renderStatusList(elementId, status, emptyText, buttonText, buttonClass, onButtonClick) {
+                const items = [];
+                allEquipmentMasterList.forEach(kit => {
+                    (kit.items || []).forEach(item => {
+                        if (item.status === status) {
+                            items.push({ ...kit, itemName: item.name, itemDetails: item });
+                        }
+                    });
+                });
+
+                const listEl = document.getElementById(elementId);
+                renderList(listEl, items, emptyText, (el, item) => {
+                    const div = document.createElement('div');
+                    div.className = `p-2 rounded-lg ${status === 'missing' ? 'bg-red-50' : 'bg-orange-50'} flex items-center justify-between`;
+                    const notes = item.itemDetails.notes ? `<p class="text-xs text-gray-500 mt-1">Notes: ${item.itemDetails.notes}</p>` : '';
+                    div.innerHTML = `
+                        <div>
+                            <p class="font-medium text-gray-800">${item.itemName} <span class="text-gray-500">from ${item.name}</span></p>
+                            ${notes}
+                        </div>
+                        <button class="status-action-btn text-xs ${buttonClass} text-white font-semibold py-1 px-2 rounded-md">${buttonText}</button>
+                    `;
+                    div.querySelector('.status-action-btn').addEventListener('click', () => onButtonClick(item));
+                    el.appendChild(div);
+                });
+            }
+
+            function renderMaintenanceList() {
+                renderStatusList('maintenanceList', 'under_maintenance', 'No items are under maintenance.', 'Log Maint.', 'bg-orange-500 hover:bg-orange-600', openMaintenanceModal);
+            }
+
+            function renderMissingList() {
+                renderStatusList('missingList', 'missing', 'No items are missing.', 'Found', 'bg-red-500 hover:bg-red-600', openFoundModal);
+            }
+
+            function renderOnLoanList(loans) {
+                loans.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate)); // Sort by due date
+                const onLoanListEl = document.getElementById('onLoanList');
+                renderList(onLoanListEl, loans, 'No kits are currently on loan.', (el, loan) => {
+                    const card = document.createElement('div');
+                    const isOverdue = new Date(loan.dueDate) < new Date();
+                    card.className = `bg-gray-50 p-4 rounded-lg border ${isOverdue ? 'border-red-400' : 'border-gray-200'} animate-fade-in`;
+                    
+                    const equipmentHtml = loan.kits.map(k => `<span class="inline-block bg-gray-200 rounded-full px-3 py-1 text-sm font-semibold text-gray-700 mr-2 mb-2">${k.name} (${k.code})</span>`).join('');
+                    
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="font-bold text-lg">Loan ID: ${loan.loanId}</p>
+                                ${isOverdue ? '<p class="text-red-600 font-bold text-sm">OVERDUE</p>' : ''}
+                            </div>
+                            <button data-loan-id="${loan.id}" class="manage-loan-btn bg-blue-500 text-white font-semibold py-1 px-3 rounded-lg hover:bg-blue-600 transition-colors text-sm">Manage Loan</button>
+                        </div>
+                        <div class="mt-4">
+                            <p class="text-sm"><span class="font-semibold">Loaned:</span> ${loan.loanDate}</p>
+                            <p class="text-sm"><span class="font-semibold">Due:</span> ${loan.dueDate}</p>
+                        </div>
+                        <div class="mt-4 pt-4 border-t">
+                            <h4 class="font-semibold mb-2">Kits:</h4>
+                            <div class="flex flex-wrap">${equipmentHtml}</div>
+                        </div>
+                    `;
+                    card.querySelector('.manage-loan-btn').addEventListener('click', (e) => {
+                        const foundLoan = loans.find(l => l.id === e.target.dataset.loanId);
+                        if (foundLoan) openEditLoanModal(foundLoan);
+                    });
+                    el.appendChild(card);
+                });
+            }
+
+            function renderGeneralItemsList(items) {
+                 items.sort((a,b) => a.name.localeCompare(b.name));
+                 const listEl = document.getElementById('generalItemsList');
+                 renderList(listEl, items, 'No general items in inventory.', (el, item) => {
+                     const div = document.createElement('div');
+                     div.className = 'p-3 rounded-lg bg-gray-50 border flex items-center justify-between';
+                     div.innerHTML = `
+                         <div>
+                             <p class="font-medium text-gray-900">${item.name}</p>
+                             <p class="text-xs text-gray-500">In Stock: <span class="font-bold text-lg">${item.quantity}</span></p>
+                             <p class="text-xs text-gray-500">Category: ${item.category || 'N/A'}</p>
+                             <p class="text-xs text-gray-500 general-item-location-text cursor-pointer hover:text-indigo-600" data-item-id="${item.id}">Location: ${item.location || 'N/A'}</p>
+                         </div>
+                         <div class="flex items-center space-x-2">
+                             <button data-id="${item.id}" class="general-item-decrement text-white bg-red-500 hover:bg-red-600 rounded-full w-8 h-8 font-bold text-xl flex items-center justify-center">-</button>
+                             <button data-id="${item.id}" class="general-item-increment text-white bg-green-500 hover:bg-green-600 rounded-full w-8 h-8 font-bold text-xl flex items-center justify-center">+</button>
+                              <button data-item-id="${item.id}" data-item-name="${item.name}" class="general-item-delete text-gray-400 hover:text-red-500 font-bold text-2xl ml-2">&times;</button>
+                         </div>
+                     `;
+                     el.appendChild(div);
+
+                     div.querySelector('.general-item-increment').addEventListener('click', () => updateDoc(doc(db, generalItemsCollectionPath, item.id), { quantity: increment(1) }));
+                     div.querySelector('.general-item-decrement').addEventListener('click', () => { if (item.quantity > 0) updateDoc(doc(db, generalItemsCollectionPath, item.id), { quantity: increment(-1) }); });
+                     div.querySelector('.general-item-delete').addEventListener('click', (e) => {
+                         const itemId = e.currentTarget.dataset.itemId;
+                         const itemName = e.currentTarget.dataset.itemName;
+                         activeModal.kit = { id: itemId, name: itemName };
+                         document.getElementById('generalItemDeleteConfirmText').textContent = `Are you sure you want to delete all "${itemName}" items from the inventory? This action cannot be undone.`;
+                         openModal(document.getElementById('generalItemDeleteConfirmModal'));
+                     });
+                     div.querySelector('.general-item-location-text').addEventListener('click', (e) => {
+                         e.stopPropagation();
+                         makeGeneralItemLocationEditable(e.currentTarget, item.id, item.location || '');
+                     });
+                 });
+             }
+             
+            function updateBulkActionsVisibility() {
+                const bulkSelectCount = document.getElementById('bulkSelectCount');
+                const bulkActionsContainer = document.getElementById('bulkActions');
+                const hasSelections = selectedItems.size > 0;
+
+                bulkActionsContainer.classList.toggle('hidden', !hasSelections);
+                bulkSelectCount.textContent = hasSelections ? `${selectedItems.size} selected` : '';
+            }
+
+            // --- Handlers for User Actions ---
+
+            async function updateItemStatus(kit, newStatus, notes, itemName) {
+                if (!kit || !kit.id || !itemName) return showToast('Invalid data for status update.', true);
+
+                const kitDocRef = doc(db, equipmentCollectionPath, kit.id);
+                const updatedItems = kit.items.map(item => {
+                    if (item.name === itemName) {
+                        return { ...item, status: newStatus, notes: notes || '' };
+                    }
+                    return item;
+                });
+
+                try {
+                    const batch = writeBatch(db);
+                    batch.update(kitDocRef, { items: updatedItems });
+
+                    const historyNote = `Status of '${itemName}' changed to ${newStatus.replace(/_/g, ' ')}. Notes: ${notes}`;
+                    batch.set(doc(collection(db, historyCollectionPath)), {
+                        type: 'status_change',
+                        kitId: kit.id,
+                        kitName: kit.name,
+                        notes: historyNote,
+                        timestamp: serverTimestamp()
+                    });
+                    
+                    await batch.commit();
+                    showToast(`'${itemName}' status updated successfully.`);
+                } catch (error) {
+                    console.error('Error updating item status:', error);
+                    showToast('Failed to update item status.', true);
+                }
+            }
+            
+            async function handleAddKit() {
+                const name = document.getElementById('kitName').value.trim();
+                const code = document.getElementById('kitCode').value.trim();
+                let category = document.getElementById('kitCategory').value.trim();
+                const itemsStr = document.getElementById('kitItems').value.trim();
+                const location = document.getElementById('kitLocation').value.trim();
+                if (!name || !code || !category) return showToast("Kit Name, Code, and Category are required.", true);
+        
+                if(category) {
+                    category = category.charAt(0).toUpperCase() + category.slice(1);
+                }
+        
+                const items = itemsStr ? itemsStr.split(',').map(s => ({ name: s.trim(), status: 'available', notes: '' })).filter(a => a.name) : [];
+                try {
+                    await addDoc(collection(db, equipmentCollectionPath), { name, code, category, items, status: 'available', location, createdAt: serverTimestamp() });
+                    showToast("Kit added successfully!");
+                    ['kitName', 'kitCode', 'kitCategory', 'kitItems', 'kitLocation'].forEach(id => document.getElementById(id).value = '');
+                } catch (error) { 
+                    console.error("Failed to add kit:", error);
+                    showToast("Failed to add kit.", true); 
+                }
+            }
+
             function handleSelection(kit) {
                 if (selectedItems.has(kit.id)) {
                     selectedItems.delete(kit.id);
@@ -929,6 +895,274 @@
                 }
             }
 
+            function handlePreLoanChecklistConfirm() {
+                 if (!activeModal.kit) return;
+                 const kit = activeModal.kit;
+                 const checklistData = {
+                     conditionGood: document.querySelector('input[name="preLoanCondition"]:checked').value,
+                     accessoriesPresent: document.querySelector('input[name="preLoanAccessories"]:checked').value,
+                     notes: document.getElementById('preLoanNotes').value.trim()
+                 };
+
+                 selectedItems.set(kit.id, { kit, checklistData });
+                 renderSelectedForLoan();
+                 renderAvailableKitList();
+                 closeModal(document.getElementById('preLoanChecklistModal'));
+             }
+
+            async function confirmCreateLoan() {
+                const loanId = document.getElementById('uniqueLoanId').value.trim();
+                const dueDate = document.getElementById('dueDate').value;
+                const loanDate = document.getElementById('loanDate').value;
+                if(!loanId || !dueDate) return showToast("Unique Loan ID and Due Date are required.", true);
+                if (selectedItems.size === 0) return showToast("Please select at least one kit for the loan.", true);
+                
+                const kitsForLoan = Array.from(selectedItems.values()).map(item => ({
+                    id: item.kit.id,
+                    name: item.kit.name,
+                    code: item.kit.code,
+                    preLoanChecklist: item.checklistData
+                }));
+
+                try {
+                    const batch = writeBatch(db);
+                    const loanDocRef = doc(collection(db, loansCollectionPath));
+                    batch.set(loanDocRef, {
+                        loanId: loanId,
+                        loanDate: loanDate,
+                        dueDate: dueDate,
+                        kits: kitsForLoan,
+                        kitIds: kitsForLoan.map(e => e.id),
+                        status: 'active',
+                        createdAt: serverTimestamp()
+                    });
+                    
+                    // Update status of each kit and create history records
+                    kitsForLoan.forEach(kit => {
+                        const kitDocRef = doc(db, equipmentCollectionPath, kit.id);
+                        batch.update(kitDocRef, { status: 'on_loan' });
+
+                        const historyDocRef = doc(collection(db, historyCollectionPath));
+                        batch.set(historyDocRef, {
+                            type: 'loan_created',
+                            kitId: kit.id,
+                            kitName: kit.name,
+                            notes: `Added to new loan: ${loanId}. Due: ${dueDate}.`,
+                            timestamp: serverTimestamp()
+                        });
+                    });
+                    
+                    await batch.commit();
+                    
+                    ['uniqueLoanId', 'dueDate'].forEach(id => document.getElementById(id).value = '');
+                    document.getElementById('loanDate').valueAsDate = new Date();
+                    selectedItems.clear();
+                    renderSelectedForLoan();
+                    renderAvailableKitList();
+                    showToast("Loan created successfully!");
+                } catch (error) { 
+                    console.error("Failed to create loan:", error);
+                    showToast("Failed to create loan.", true); 
+                }
+            }
+            
+            async function handleDirectActionConfirm(e) {
+                const notes = document.getElementById('directActionNotes').value.trim();
+                if (!notes) return showToast("Please provide a reason/notes.", true);
+                if (!activeModal.kit || !activeModal.itemName) return showToast("An error occurred. No item selected.", true);
+                
+                const isMaint = e.target.textContent.toLowerCase().includes('maintenance');
+                const newStatus = isMaint ? 'under_maintenance' : 'missing';
+
+                await updateItemStatus(activeModal.kit, newStatus, notes, activeModal.itemName);
+                closeModal(document.getElementById('directActionModal'));
+                closeModal(document.getElementById('accessoryManagementModal'));
+            }
+
+            async function handleDeleteKitPermanently() {
+                if (!activeModal.kit) return;
+                const kit = activeModal.kit;
+                try {
+                    const batch = writeBatch(db);
+                    batch.delete(doc(db, equipmentCollectionPath, kit.id));
+                    
+                    const q = query(collection(db, historyCollectionPath), where("kitId", "==", kit.id));
+                    const historySnapshot = await getDocs(q);
+                    historySnapshot.forEach(historyDoc => batch.delete(historyDoc.ref));
+                    
+                    await batch.commit();
+                    showToast(`Successfully deleted ${kit.name} and all its history.`);
+                    closeModal(document.getElementById('deleteConfirmModal'));
+                    closeModal(document.getElementById('historyModal'));
+                } catch(error) { 
+                    console.error(`Failed to delete ${kit.name}:`, error);
+                    showToast(`Failed to delete ${kit.name}.`, true); 
+                }
+            }
+            
+            async function handleDeleteGeneralItem() {
+                 if (!activeModal.kit) return;
+                 const { id, name } = activeModal.kit;
+
+                 try {
+                     await deleteDoc(doc(db, generalItemsCollectionPath, id));
+                     showToast(`Deleted "${name}" from inventory.`);
+                 } catch(error) {
+                     console.error(`Error deleting general item "${name}":`, error);
+                     showToast(`Failed to delete "${name}".`, true);
+                 } finally {
+                     closeModal(document.getElementById('generalItemDeleteConfirmModal'));
+                 }
+             }
+
+            async function handleBulkMove() {
+                 const newLocation = document.getElementById('bulkMoveLocation').value.trim();
+                 if (!newLocation) return showToast("Please enter a new location.", true);
+                 if (selectedItems.size === 0) return showToast("No items selected for bulk move.", true);
+
+                 const batch = writeBatch(db);
+                 const historyNote = `Bulk moved to "${newLocation}".`;
+
+                 selectedItems.forEach((itemData, kitId) => {
+                     const kitDocRef = doc(db, equipmentCollectionPath, kitId);
+                     batch.update(kitDocRef, { location: newLocation });
+
+                     const historyDocRef = doc(collection(db, historyCollectionPath));
+                     batch.set(historyDocRef, {
+                         type: 'location_change',
+                         kitId: kitId,
+                         kitName: itemData.kit.name,
+                         notes: historyNote,
+                         timestamp: serverTimestamp()
+                     });
+                 });
+
+                 try {
+                     await batch.commit();
+                     showToast(`Successfully moved ${selectedItems.size} kits.`);
+                     selectedItems.clear();
+                     renderAvailableKitList();
+                     closeModal(document.getElementById('bulkMoveModal'));
+                 } catch (error) {
+                     console.error("Bulk move failed:", error);
+                     showToast("Bulk move failed. Please try again.", true);
+                 }
+             }
+             
+            async function handleCompleteMaintenance() {
+                const notes = document.getElementById('maintenanceNotes').value.trim();
+                if (!notes) return showToast('Please enter maintenance notes.', true);
+                if (!activeModal.kit || !activeModal.itemName) return;
+
+                await updateItemStatus(activeModal.kit, 'available', `Maintenance performed: ${notes}`, activeModal.itemName);
+                closeModal(document.getElementById('maintenanceModal'));
+            }
+
+            async function handleMarkAsFound() {
+                const notes = document.getElementById('foundNotes').value.trim();
+                if (!notes) return showToast('Please enter notes about finding the item.', true);
+                if (!activeModal.kit || !activeModal.itemName) return;
+
+                await updateItemStatus(activeModal.kit, 'available', `Item found. Notes: ${notes}`, activeModal.itemName);
+                closeModal(document.getElementById('foundModal'));
+            }
+
+            async function handleEditLoan() {
+                if (!activeModal.loan) return showToast('No active loan to edit.', true);
+                
+                const loan = activeModal.loan;
+                const loanDocRef = doc(db, loansCollectionPath, loan.id);
+                const updateNotes = document.getElementById('editLoanNotes').value.trim();
+                if (!updateNotes) return showToast("Please add notes for this loan update.", true);
+
+                const newDueDate = document.getElementById('newDueDate').value;
+                
+                const returnActionSelects = document.querySelectorAll('.return-action-select');
+                const kitsToReturn = new Map();
+                returnActionSelects.forEach(select => {
+                    if (select.value === 'return') {
+                        const kitId = select.dataset.kitId;
+                        const kit = loan.kits.find(k => k.id === kitId);
+                        if (kit) kitsToReturn.set(kitId, kit);
+                    }
+                });
+
+                const newKitsToAdd = activeModal.kitsToAdd ? Array.from(activeModal.kitsToAdd.values()) : [];
+                const kitsToKeep = loan.kits.filter(k => !kitsToReturn.has(k.id));
+                const finalKitsOnLoan = [...kitsToKeep, ...newKitsToAdd.map(k => ({id: k.id, name: k.name, code: k.code, preLoanChecklist: {}}))];
+                
+                const batch = writeBatch(db);
+
+                // If all kits are returned, the loan is completed and deleted.
+                if (finalKitsOnLoan.length === 0) {
+                    batch.delete(loanDocRef);
+                    kitsToReturn.forEach((kit, kitId) => {
+                        batch.update(doc(db, equipmentCollectionPath, kitId), { status: 'available' });
+                        batch.set(doc(collection(db, historyCollectionPath)), {
+                            type: 'kit_returned',
+                            kitId: kitId,
+                            kitName: kit.name,
+                            notes: `Returned from loan ${loan.loanId} as part of loan completion. Update Notes: ${updateNotes}`,
+                            timestamp: serverTimestamp()
+                        });
+                    });
+
+                    await batch.commit();
+                    showToast(`Loan ${loan.loanId} completed.`);
+                    closeModal(document.getElementById('editLoanModal'));
+                    return;
+                }
+
+                // Otherwise, update the loan and log individual changes.
+                // Log date change for kits that are remaining on the loan
+                if (newDueDate !== loan.dueDate) {
+                    finalKitsOnLoan.forEach(kit => {
+                         batch.set(doc(collection(db, historyCollectionPath)), {
+                            type: 'loan_updated',
+                            kitId: kit.id,
+                            kitName: kit.name,
+                            notes: `Loan ${loan.loanId} due date changed from ${loan.dueDate} to ${newDueDate}. Update Notes: ${updateNotes}`,
+                            timestamp: serverTimestamp()
+                        });
+                    });
+                }
+
+                // Log returned kits
+                kitsToReturn.forEach((kit, kitId) => {
+                    batch.update(doc(db, equipmentCollectionPath, kitId), { status: 'available' });
+                    batch.set(doc(collection(db, historyCollectionPath)), {
+                        type: 'kit_returned',
+                        kitId: kitId,
+                        kitName: kit.name,
+                        notes: `Returned from loan ${loan.loanId}. Update Notes: ${updateNotes}`,
+                        timestamp: serverTimestamp()
+                    });
+                });
+
+                // Log added kits
+                newKitsToAdd.forEach(kit => {
+                    batch.update(doc(db, equipmentCollectionPath, kit.id), { status: 'on_loan' });
+                     batch.set(doc(collection(db, historyCollectionPath)), {
+                        type: 'kit_added_to_loan',
+                        kitId: kit.id,
+                        kitName: kit.name,
+                        notes: `Added to existing loan ${loan.loanId}. Update Notes: ${updateNotes}`,
+                        timestamp: serverTimestamp()
+                    });
+                });
+                
+                // Update the loan document
+                batch.update(loanDocRef, {
+                    dueDate: newDueDate,
+                    kits: finalKitsOnLoan,
+                    kitIds: finalKitsOnLoan.map(k => k.id)
+                });
+
+                await batch.commit();
+                showToast(`Loan ${loan.loanId} updated.`);
+                closeModal(document.getElementById('editLoanModal'));
+            }
+            
             async function handleAddGeneralItem() {
                 const name = document.getElementById('generalItemName').value.trim();
                 const category = document.getElementById('generalItemCategory').value.trim();
@@ -936,8 +1170,7 @@
                 const location = document.getElementById('generalItemLocation').value.trim();
 
                 if (!name || !category || !quantity || quantity < 1) {
-                    showToast("Name, Category, and a valid Quantity are required.", true);
-                    return;
+                    return showToast("Name, Category, and a valid Quantity are required.", true);
                 }
 
                 try {
@@ -946,101 +1179,55 @@
 
                     if (!querySnapshot.empty) {
                         const existingDoc = querySnapshot.docs[0];
-                        await updateDoc(doc(db, generalItemDocPath(existingDoc.id)), { 
-                            quantity: increment(quantity) 
-                        });
+                        await updateDoc(doc(db, generalItemsCollectionPath, existingDoc.id), { quantity: increment(quantity) });
                         showToast(`Added ${quantity} to ${name} inventory.`);
                     } else {
                         await addDoc(collection(db, generalItemsCollectionPath), { name, category, quantity, location });
                         showToast(`Added new item: ${name}.`);
                     }
 
-                    document.getElementById('generalItemName').value = '';
-                    document.getElementById('generalItemCategory').value = '';
-                    document.getElementById('generalItemQuantity').value = '1';
-                    document.getElementById('generalItemLocation').value = '';
+                    document.getElementById('addGeneralItemForm').reset();
                 } catch (error) {
                     console.error("Error adding general item:", error);
                     showToast("Failed to add general item.", true);
                 }
             }
-            
-            async function handleDeleteGeneralItem() {
-                const itemId = activeModal.kit.id;
-                const itemName = activeModal.kit.name;
-                if (!itemId) return;
 
-                try {
-                    await deleteDoc(doc(db, generalItemDocPath(itemId)));
-                    showToast(`Deleted ${itemName} from inventory.`);
-                } catch(error) {
-                    showToast(`Failed to delete ${itemName}.`, true);
-                    console.error("Error deleting general item:", error);
-                } finally {
-                    closeModal(document.getElementById('generalItemDeleteConfirmModal'));
-                }
+
+            // --- Modal Opening Functions ---
+            function openPreLoanChecklistModal(kit) {
+                activeModal.kit = kit;
+                document.getElementById('preLoanChecklistTitle').textContent = `Pre-Loan Checklist: ${kit.name}`;
+                document.getElementById('preLoanChecklistForm').reset();
+                openModal(document.getElementById('preLoanChecklistModal'));
             }
 
-            async function handleAddKit() {
-                const name = document.getElementById('kitName').value.trim();
-                const code = document.getElementById('kitCode').value.trim();
-                let category = document.getElementById('kitCategory').value.trim();
-                const itemsStr = document.getElementById('kitItems').value.trim();
-                const location = document.getElementById('kitLocation').value.trim();
-                if (!name || !code || !category) return showToast("Kit Name, Code, and Category are required.", true);
-        
-                if(category) {
-                    category = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
-                }
-        
-                const items = itemsStr ? itemsStr.split(',').map(s => ({ name: s.trim(), status: 'available' })).filter(a => a.name) : [];
-                try {
-                    await addDoc(collection(db, equipmentCollectionPath), { name, code, category, items, status: 'available', location, timestamp: serverTimestamp() });
-                    showToast("Kit added successfully!");
-                    ['kitName', 'kitCode', 'kitCategory', 'kitItems', 'kitLocation'].forEach(id => document.getElementById(id).value = '');
-                } catch (error) { showToast("Failed to add kit.", true); }
+            function openMaintenanceModal(item) {
+                activeModal.kit = item;
+                activeModal.itemName = item.itemName;
+                document.getElementById('maintenanceModalTitle').textContent = `Log Maintenance for ${item.itemName}`;
+                document.getElementById('maintenanceNotes').value = '';
+                openModal(document.getElementById('maintenanceModal'));
             }
-            
-            async function confirmCreateLoan() {
-                const loanId = document.getElementById('uniqueLoanId').value.trim();
-                if(!loanId) return showToast("Unique Loan ID is required.", true);
-                
-                const kitsForLoan = [];
-                selectedItems.forEach((value, key) => {
-                    kitsForLoan.push({
-                        ...value.kit,
-                        preLoanChecklist: value.checklistData
-                    });
-                });
 
-                try {
-                    const batch = writeBatch(db);
-                    batch.set(doc(collection(db, loansCollectionPath)), {
-                        loanId: loanId,
-                        loanDate: document.getElementById('loanDate').value, 
-                        dueDate: document.getElementById('dueDate').value, 
-                        kits: kitsForLoan, 
-                        kitIds: kitsForLoan.map(e => e.id),
-                        timestamp: serverTimestamp()
-                    });
-                    kitsForLoan.forEach(kit => batch.update(doc(db, equipmentDocPath(kit.id)), { status: 'on_loan' }));
-                    await batch.commit();
-                    ['uniqueLoanId', 'dueDate'].forEach(id => document.getElementById(id).value = '');
-                    selectedItems.clear();
-                    renderSelectedForLoan();
-                    renderAvailableKitList();
-                    showToast("Loan created successfully!");
-                } catch (error) { showToast("Failed to create loan.", true); }
+            function openFoundModal(item) {
+                activeModal.kit = item;
+                activeModal.itemName = item.itemName;
+                document.getElementById('foundModalTitle').textContent = `Mark as Found: ${item.itemName}`;
+                document.getElementById('foundNotes').value = '';
+                openModal(document.getElementById('foundModal'));
             }
             
             function openEditLoanModal(loan) {
                 activeModal.loan = loan;
+                const modal = document.getElementById('editLoanModal');
                 document.getElementById('editLoanModalTitle').textContent = `Edit Loan: ${loan.loanId}`;
                 document.getElementById('newDueDate').value = loan.dueDate;
                 document.getElementById('editLoanNotes').value = '';
-        
+                activeModal.kitsToAdd = new Map(); // Reset on open
+
                 const currentItemsContainer = document.getElementById('editLoanCurrentItems');
-                currentItemsContainer.innerHTML = ''; // Clear previous content
+                currentItemsContainer.innerHTML = '';
                 loan.kits.forEach(kit => {
                     const itemWrapper = document.createElement('div');
                     itemWrapper.id = `wrapper-${kit.id}`;
@@ -1055,459 +1242,210 @@
                             <option value="return">Return Kit</option>
                         </select>
                     `;
-                    
                     itemWrapper.appendChild(itemDiv);
                     currentItemsContainer.appendChild(itemWrapper);
                 });
 
-                // Add event listeners after elements are in the DOM
-                currentItemsContainer.querySelectorAll('.return-action-select').forEach(select => {
-                    select.addEventListener('change', (e) => {
-                        const kitId = e.target.dataset.kitId;
-                        const wrapper = document.getElementById(`wrapper-${kitId}`);
-                        const existingChecklist = document.getElementById(`checklist-${kitId}`);
-                        if(existingChecklist) existingChecklist.remove();
-
-                        if (e.target.value === 'return') {
-                            const checklistDiv = document.createElement('div');
-                            checklistDiv.id = `checklist-${kitId}`;
-                            checklistDiv.className = 'mt-3 pt-3 border-t border-gray-300 space-y-2';
-                            checklistDiv.innerHTML = `
-                                <h4 class="font-semibold text-sm">Return Checklist for ${loan.kits.find(k=>k.id===kitId).name}</h4>
-                                <div class="flex items-center justify-between">
-                                    <label class="text-sm">Condition good?</label>
-                                    <div>
-                                        <input type="radio" name="condition-${kitId}" value="Yes" checked class="mr-1"><label class="mr-2 text-sm">Yes</label>
-                                        <input type="radio" name="condition-${kitId}" value="No" class="mr-1"><label class="text-sm">No</label>
-                                    </div>
-                                </div>
-                                 <div class="flex items-center justify-between">
-                                    <label class="text-sm">All accessories returned?</label>
-                                    <div>
-                                        <input type="radio" name="accessories-${kitId}" value="Yes" checked class="mr-1"><label class="mr-2 text-sm">Yes</label>
-                                        <input type="radio" name="accessories-${kitId}" value="No" class="mr-1"><label class="text-sm">No</label>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium">Return Notes</label>
-                                    <textarea class="return-notes w-full p-1 border border-gray-300 rounded-md text-sm" rows="2" placeholder="e.g., Minor scratch on body."></textarea>
-                                </div>
-                            `;
-                            wrapper.appendChild(checklistDiv);
-                        }
-                    });
-                });
-        
-                // Render addable kits
-                const addableKits = allEquipmentMasterList.filter(kit => kit.status === 'available');
-                 renderList('editLoanAddableItems', addableKits, 'No other kits available to add.', (el, kit) => {
+                const addableItemsContainer = document.getElementById('editLoanAddableItems');
+                const loanKitIds = new Set(loan.kitIds);
+                const addableKits = allEquipmentMasterList.filter(kit => kit.status === 'available' && !loanKitIds.has(kit.id));
+                
+                renderList(addableItemsContainer, addableKits, 'No other kits available to add.', (el, kit) => {
                     const div = document.createElement('div');
                     div.className = 'flex items-center justify-between p-2 hover:bg-gray-100 rounded-md';
-                    div.innerHTML = `<span>${kit.name} (${kit.code})</span><button class="add-to-loan-btn text-xs bg-green-500 hover:bg-green-600 text-white font-semibold py-1 px-2 rounded-md" data-kit-id="${kit.id}">Add</button>`;
-                    div.querySelector('.add-to-loan-btn').addEventListener('click', function() {
-                        this.disabled = true;
-                        this.textContent = 'Added';
-                        this.classList.add('bg-gray-400', 'cursor-not-allowed');
-                        this.dataset.added = 'true';
+                    div.innerHTML = `
+                        <span>${kit.name} (${kit.code})</span>
+                        <button class="add-to-loan-btn text-xs bg-green-500 hover:bg-green-600 text-white font-semibold py-1 px-2 rounded-md" data-kit-id="${kit.id}">Add</button>
+                    `;
+                    div.querySelector('.add-to-loan-btn').addEventListener('click', (e) => {
+                        e.target.textContent = 'Added';
+                        e.target.disabled = true;
+                        const kitToAdd = allEquipmentMasterList.find(k => k.id === e.target.dataset.kitId);
+                        activeModal.kitsToAdd.set(kitToAdd.id, kitToAdd);
                     });
                     el.appendChild(div);
                 });
-        
-                document.getElementById('editLoanModal').style.display = 'flex';
+
+                openModal(modal);
             }
-    
-            async function handleEditLoan() {
-                const loan = activeModal.loan;
-                const generalNotes = document.getElementById('editLoanNotes').value.trim();
-                const newDueDate = document.getElementById('newDueDate').value;
-                const batch = writeBatch(db);
 
-                const kitsToKeep = [...loan.kits];
-                document.querySelectorAll('#editLoanCurrentItems .return-action-select').forEach(select => {
-                    if (select.value === 'return') {
-                        const kitId = select.dataset.kitId;
-                        const kit = loan.kits.find(k => k.id === kitId);
-                        
-                        batch.update(doc(db, equipmentDocPath(kit.id)), { status: 'available' });
-
-                        const checklistDiv = document.getElementById(`checklist-${kitId}`);
-                        const checklistData = {
-                            conditionGood: checklistDiv.querySelector('input[name="condition-' + kitId + '"]:checked').value,
-                            accessoriesReturned: checklistDiv.querySelector('input[name="accessories-' + kitId + '"]:checked').value,
-                            notes: checklistDiv.querySelector('.return-notes').value.trim()
-                        };
-                        
-                        batch.set(doc(collection(db, historyCollectionPath)), {
-                            type: 'return',
-                            loanId: loan.loanId,
-                            kitId: kit.id,
-                            kitName: kit.name,
-                            checklist: checklistData,
-                            timestamp: serverTimestamp()
-                        });
-
-                        const index = kitsToKeep.findIndex(k => k.id === kitId);
-                        if(index > -1) kitsToKeep.splice(index, 1);
-                    }
-                });
-
-                const kitsToAdd = [];
-                document.querySelectorAll('#editLoanAddableItems .add-to-loan-btn[data-added="true"]').forEach(btn => {
-                    const kit = allEquipmentMasterList.find(i => i.id === btn.dataset.kitId);
-                    if(kit) {
-                        kitsToAdd.push(kit);
-                        batch.update(doc(db, equipmentDocPath(kit.id)), { status: 'on_loan' });
-                        batch.set(doc(collection(db, historyCollectionPath)), {
-                            type: 'add_to_loan',
-                            loanId: loan.loanId,
-                            kitId: kit.id,
-                            kitName: kit.name,
-                            notes: generalNotes,
-                            timestamp: serverTimestamp()
-                        });
-                    }
-                });
-                
-                const finalKitList = [...kitsToKeep, ...kitsToAdd];
-                
-                // Check for due date change
-                if (newDueDate && newDueDate !== loan.dueDate && finalKitList.length > 0) {
-                    batch.set(doc(collection(db, historyCollectionPath)), {
-                        type: 'loan_extended',
-                        loanId: loan.loanId,
-                        kitIds: finalKitList.map(k => k.id), 
-                        kitId: finalKitList[0]?.id,
-                        notes: `Loan due date changed from ${loan.dueDate} to ${newDueDate}.`,
-                        timestamp: serverTimestamp()
-                    });
-                }
-                
-                if (finalKitList.length === 0) {
-                    batch.delete(doc(db, loanDocPath(loan.id)));
-                } else {
-                    batch.update(doc(db, loanDocPath(loan.id)), {
-                        kits: finalKitList,
-                        kitIds: finalKitList.map(k => k.id),
-                        dueDate: newDueDate || loan.dueDate
-                    });
-                }
-
-                try {
-                    await batch.commit();
-                    showToast("Loan updated successfully!");
-                    closeModal(document.getElementById('editLoanModal'));
-                } catch (error) {
-                    console.error("Failed to edit loan:", error);
-                    showToast("Failed to update loan.", true);
-                }
-            }
-            
-            async function updateItemStatus(kit, newStatus, notes, itemName = null) {
-                 try {
-                    const batch = writeBatch(db);
-                    const kitDocRef = doc(db, equipmentDocPath(kit.id));
-                    const historyNote = `STATUS CHANGE on ${itemName || kit.name} to ${newStatus.replace('_', ' ')}: ${notes}`;
-                    
-                    batch.set(doc(collection(db, historyCollectionPath)), { type: 'status_change', kitId: kit.id, kitName: kit.name, notes: historyNote, timestamp: serverTimestamp() });
-    
-                    if (itemName) {
-                        const fullKitDoc = allEquipmentMasterList.find(i => i.id === kit.id);
-                        const updatedItems = fullKitDoc.items.map(i => i.name === itemName ? { ...i, status: newStatus } : i);
-                        batch.update(kitDocRef, { items: updatedItems });
-                    } else {
-                        batch.update(kitDocRef, { status: newStatus });
-                    }
-    
-                    await batch.commit();
-                    showToast(`${itemName || kit.name} flagged as ${newStatus.replace('_', ' ')}.`);
-                } catch (error) {
-                    showToast("Failed to update status.", true);
-                }
-            }
-    
-            function openDirectActionModal(kit, mode, itemName = null) {
-                activeModal.kit = kit;
-                activeModal.itemName = itemName;
-                
-                const modal = document.getElementById('directActionModal');
-                const title = modal.querySelector('#directActionModalTitle');
-                const confirmBtn = modal.querySelector('#directActionConfirmBtn');
-                const targetName = itemName || kit.name;
-    
-                if (mode === 'maintenance') {
-                    title.textContent = `Flag ${targetName} for Maintenance`;
-                    confirmBtn.className = 'bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-orange-700';
-                    confirmBtn.textContent = 'Flag for Maintenance';
-                } else { // Missing
-                    title.textContent = `Flag ${targetName} as Missing`;
-                    confirmBtn.className = 'bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700';
-                    confirmBtn.textContent = 'Flag as Missing';
-                }
-                document.getElementById('directActionNotes').value = '';
-                modal.style.display = 'flex';
-            }
-    
             function openKitManagementModal(kit) {
                 activeModal.kit = kit;
+                const modal = document.getElementById('accessoryManagementModal');
+                const titleEl = document.getElementById('accessoryManagementTitle');
                 const listEl = document.getElementById('accessoryManagementList');
-                document.getElementById('accessoryManagementTitle').textContent = `Manage: ${kit.name}`;
+                
+                titleEl.textContent = `Manage Items for ${kit.name}`;
                 listEl.innerHTML = '';
-        
-                (kit.items || []).forEach(item => {
-                    const itemDiv = document.createElement('div');
-                    itemDiv.className = 'p-2 flex items-center justify-between border-t';
-                    itemDiv.innerHTML = `
-                        <span>${item.name} - <span class="capitalize font-medium">${item.status.replace('_', ' ')}</span></span>
-                        <div class="flex space-x-1">
-                            <button class="item-maint-btn text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold py-1 px-2 rounded-md">Maint</button>
-                            <button class="item-miss-btn text-xs bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-1 px-2 rounded-md">Miss</button>
-                        </div>`;
-                    itemDiv.querySelector('.item-maint-btn').addEventListener('click', () => openDirectActionModal(kit, 'maintenance', item.name));
-                    itemDiv.querySelector('.item-miss-btn').addEventListener('click', () => openDirectActionModal(kit, 'missing', item.name));
-                    listEl.appendChild(itemDiv);
-                });
-        
-                document.getElementById('accessoryManagementModal').style.display = 'flex';
-            }
-            
-            function openMaintenanceModal(item) {
-                activeModal.kit = item;
-                document.getElementById('maintenanceModalTitle').textContent = `Log Maintenance for ${item.itemName}`;
-                document.getElementById('maintenanceNotes').value = '';
-                document.getElementById('maintenanceModal').style.display = 'flex';
-            }
-    
-            async function handleCompleteMaintenance() {
-                const notes = document.getElementById('maintenanceNotes').value.trim();
-                const item = activeModal.kit;
-                if (!notes || !item) return showToast("Please enter maintenance notes.", true);
-        
-                try {
-                    const batch = writeBatch(db);
-                    const kitDocRef = doc(db, equipmentDocPath(item.id));
-                    const historyNote = `Maintenance on: ${item.itemName}. Action: ${notes}`;
-                    
-                    batch.set(doc(collection(db, historyCollectionPath)), { type: 'maintenance', kitId: item.id, kitName: item.name, notes: historyNote, timestamp: serverTimestamp() });
-                    
-                    const fullKitDoc = allEquipmentMasterList.find(i => i.id === item.id);
-                    const updatedItems = fullKitDoc.items.map(i => i.name === item.itemName ? { ...i, status: 'available' } : i);
-                    batch.update(kitDocRef, { items: updatedItems });
-                    
-                    await batch.commit();
-                    showToast(`Maintenance logged for ${item.itemName}.`);
-                    closeModal(document.getElementById('maintenanceModal'));
-                } catch(error) { showToast("Failed to log maintenance.", true); }
-            }
-    
-            function openFoundModal(item) {
-                activeModal.kit = item;
-                document.getElementById('foundModalTitle').textContent = `Mark ${item.itemName} as Found`;
-                document.getElementById('foundNotes').value = '';
-                document.getElementById('foundModal').style.display = 'flex';
-            }
-    
-            async function handleMarkAsFound() {
-                const notes = document.getElementById('foundNotes').value.trim();
-                const item = activeModal.kit;
-                if (!item) return;
-        
-                 try {
-                    const batch = writeBatch(db);
-                    const kitDocRef = doc(db, equipmentDocPath(item.id));
-                    const historyNote = `FOUND: ${item.itemName}. Notes: ${notes}`;
-                    
-                    batch.set(doc(collection(db, historyCollectionPath)), { type: 'status_change', kitId: item.id, kitName: item.name, notes: historyNote, timestamp: serverTimestamp() });
-                    
-                    const fullKitDoc = allEquipmentMasterList.find(i => i.id === item.id);
-                    const updatedItems = fullKitDoc.items.map(i => i.name === item.itemName ? { ...i, status: 'available' } : i);
-                    batch.update(kitDocRef, { items: updatedItems });
-    
-                    await batch.commit();
-                    showToast(`Item marked as found.`);
-                    closeModal(document.getElementById('foundModal'));
-    
-                } catch(error) { showToast("Failed to update item status.", true); }
-            }
-            
-            async function handleBulkMove() {
-                const newLocation = document.getElementById('bulkMoveLocation').value.trim();
-                if (!newLocation) {
-                    showToast('Please enter a new location.', true);
+
+                if (!kit.items || kit.items.length === 0) {
+                    listEl.innerHTML = '<p class="text-gray-500">This kit has no individual items listed.</p>';
+                    openModal(modal);
                     return;
                 }
-        
-                try {
-                    const batch = writeBatch(db);
-                    for(const kitId of selectedItems.keys()) {
-                        const kit = allEquipmentMasterList.find(i => i.id === kitId);
-                        if(!kit) continue;
-                        
-                        const kitDocRef = doc(db, equipmentDocPath(kitId));
-                        batch.update(kitDocRef, { location: newLocation });
-    
-                        const historyNote = `Bulk moved from "${kit.location || 'Not set'}" to "${newLocation}".`;
-                        batch.set(doc(collection(db, historyCollectionPath)), {
-                            type: 'location_change',
-                            kitId: kitId,
-                            kitName: kit.name,
-                            notes: historyNote,
-                            timestamp: serverTimestamp()
-                        });
+
+                kit.items.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'p-3 bg-gray-50 rounded-md border flex items-center justify-between';
+                    
+                    let statusBadge = '';
+                    if (item.status === 'missing') {
+                        statusBadge = '<span class="text-xs font-semibold text-red-600">Missing</span>';
+                    } else if (item.status === 'under_maintenance') {
+                        statusBadge = '<span class="text-xs font-semibold text-orange-600">Maintenance</span>';
                     }
-                    await batch.commit();
-                    showToast(`${selectedItems.size} kits moved successfully.`);
-                    selectedItems.clear();
-                    closeModal(document.getElementById('bulkMoveModal'));
-                    renderAvailableKitList();
-                    renderSelectedForLoan();
-                } catch (error) {
-                    console.error('Bulk move failed:', error);
-                    showToast('Failed to move items.', true);
-                }
+
+                    div.innerHTML = `
+                        <div>
+                            <p class="font-medium">${item.name} ${statusBadge}</p>
+                            ${item.notes ? `<p class="text-xs text-gray-500">Notes: ${item.notes}</p>` : ''}
+                        </div>
+                        <div class="flex space-x-2">
+                            <button data-item-name="${item.name}" class="maint-btn text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold py-1 px-2 rounded-md">Maint.</button>
+                            <button data-item-name="${item.name}" class="miss-btn text-xs bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-1 px-2 rounded-md">Missing</button>
+                        </div>
+                    `;
+
+                    div.querySelector('.maint-btn').addEventListener('click', (e) => {
+                        const itemName = e.target.dataset.itemName;
+                        activeModal.itemName = itemName;
+                        const directActionModal = document.getElementById('directActionModal');
+                        document.getElementById('directActionModalTitle').textContent = `Set "${itemName}" to Maintenance`;
+                        document.getElementById('directActionNotes').value = '';
+                        const confirmBtn = document.getElementById('directActionConfirmBtn');
+                        confirmBtn.textContent = 'Set to Maintenance';
+                        confirmBtn.className = 'bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-orange-700';
+                        openModal(directActionModal);
+                    });
+                    
+                    div.querySelector('.miss-btn').addEventListener('click', (e) => {
+                        const itemName = e.target.dataset.itemName;
+                        activeModal.itemName = itemName;
+                        const directActionModal = document.getElementById('directActionModal');
+                        document.getElementById('directActionModalTitle').textContent = `Mark "${itemName}" as Missing`;
+                        document.getElementById('directActionNotes').value = '';
+                        const confirmBtn = document.getElementById('directActionConfirmBtn');
+                        confirmBtn.textContent = 'Mark as Missing';
+                        confirmBtn.className = 'bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700';
+                        openModal(directActionModal);
+                    });
+                    listEl.appendChild(div);
+                });
+                openModal(modal);
             }
 
-            function openPreLoanChecklistModal(kit) {
-                activeModal.kit = kit;
-                const modal = document.getElementById('preLoanChecklistModal');
-                document.getElementById('preLoanChecklistTitle').textContent = `Pre-Loan Checklist: ${kit.name}`;
-                document.getElementById('preLoanChecklistForm').reset();
-                modal.style.display = 'flex';
-            }
+            async function openHistoryModal(kit) {
+                 activeModal.kit = kit;
+                 const historyModal = document.getElementById('historyModal');
+                 const titleEl = document.getElementById('historyModalTitle');
+                 const contentEl = document.getElementById('historyModalContent');
+                 const deleteBtn = document.getElementById('deleteItemBtn');
 
-            function handlePreLoanChecklistConfirm() {
-                const checklistData = {
-                    conditionGood: document.querySelector('input[name="preLoanCondition"]:checked').value,
-                    accessoriesPresent: document.querySelector('input[name="preLoanAccessories"]:checked').value,
-                    notes: document.getElementById('preLoanNotes').value.trim()
+                 titleEl.textContent = `History for ${kit.name} (${kit.code})`;
+                 contentEl.innerHTML = '<p class="text-gray-500">Loading history...</p>';
+                 deleteBtn.disabled = kit.status !== 'available';
+
+                 openModal(historyModal);
+
+                 try {
+                     const q = query(collection(db, historyCollectionPath), where("kitId", "==", kit.id));
+                     const snap = await getDocs(q);
+                     const historyItems = snap.docs.map(d => d.data());
+                     historyItems.sort((a,b) => b.timestamp.toMillis() - a.timestamp.toMillis());
+
+                     contentEl.innerHTML = '';
+                     if (historyItems.length === 0) {
+                         contentEl.innerHTML = '<p class="text-gray-500">No history found for this kit.</p>';
+                         return;
+                     }
+                     
+                     historyItems.forEach(item => {
+                         const div = document.createElement('div');
+                         div.className = 'p-3 bg-gray-50 rounded-md border';
+                         const date = item.timestamp ? item.timestamp.toDate().toLocaleString() : 'Date not available';
+                         div.innerHTML = `
+                             <p class="font-semibold">${item.type ? item.type.replace(/_/g, ' ').toUpperCase() : 'EVENT'}</p>
+                             <p class="text-sm text-gray-700">${item.notes}</p>
+                             <p class="text-xs text-gray-500 mt-1">${date}</p>
+                         `;
+                         contentEl.appendChild(div);
+                     });
+
+                 } catch(error) {
+                     console.error("Error fetching history:", error);
+                     contentEl.innerHTML = '<p class="text-red-500">Could not load history.</p>';
+                 }
+             }
+
+            async function makeKitLocationEditable(pElement, kitId, currentLocation) {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = currentLocation;
+                input.className = 'w-full text-xs p-1 border border-indigo-300 rounded-md';
+                pElement.replaceWith(input);
+                input.focus();
+
+                const saveLocation = async () => {
+                    const newLocation = input.value.trim();
+                    if (newLocation === currentLocation) {
+                         renderAvailableKitList();
+                         return;
+                    }
+                    try {
+                        await updateDoc(doc(db, equipmentCollectionPath, kitId), { location: newLocation });
+                        showToast("Kit location updated.");
+                    } catch (error) {
+                        showToast("Failed to update kit location.", true);
+                    }
                 };
 
-                selectedItems.set(activeModal.kit.id, { kit: activeModal.kit, checklistData: checklistData });
-                
-                renderAvailableKitList();
-                renderSelectedForLoan();
-                closeModal(document.getElementById('preLoanChecklistModal'));
+                input.addEventListener('blur', saveLocation);
+                input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
             }
-    
-            async function openHistoryModal(kitId, kitName, status, code) {
-                activeModal.kit = {id: kitId, name: kitName, status: status, code: code};
-                document.getElementById('historyModalTitle').textContent = `Loan History for ${kitName}`;
-                document.getElementById('historyModalContent').innerHTML = '<p class="text-gray-500">Loading history...</p>';
-                document.getElementById('deleteItemBtn').disabled = status === 'on_loan';
-                document.getElementById('historyModal').style.display = 'flex';
-        
-                const loanQuery = getDocs(collection(db, loansCollectionPath));
-                const historyQuery = getDocs(collection(db, historyCollectionPath));
 
-                const [loanSnapshot, historySnapshot] = await Promise.all([loanQuery, historyQuery]);
-                
-                let combinedHistory = [];
+            async function makeGeneralItemLocationEditable(pElement, itemId, currentLocation) {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = currentLocation;
+                input.className = 'w-full text-xs p-1 border border-indigo-300 rounded-md';
+                pElement.replaceWith(input);
+                input.focus();
 
-                loanSnapshot.forEach(doc => {
-                    const loanData = doc.data();
-                    if (loanData.kitIds && loanData.kitIds.includes(kitId)) {
-                        const kitInLoan = loanData.kits.find(k => k.id === kitId);
-                        if (kitInLoan && kitInLoan.preLoanChecklist) {
-                             combinedHistory.push({
-                                type: 'loan_creation',
-                                loanId: loanData.loanId,
-                                timestamp: loanData.timestamp,
-                                checklist: kitInLoan.preLoanChecklist
-                            });
-                        }
-                    }
-                });
-
-                historySnapshot.forEach(doc => {
-                    const historyData = doc.data();
-                    if (historyData.kitId === kitId || (historyData.kitIds && historyData.kitIds.includes(kitId))) {
-                        combinedHistory.push(historyData);
-                    }
-                });
-
-                const contentDiv = document.getElementById('historyModalContent');
-                if (combinedHistory.length === 0) {
-                    contentDiv.innerHTML = '<p class="text-gray-500">No history found for this item.</p>';
-                    return;
-                }
-
-                contentDiv.innerHTML = '';
-                combinedHistory.sort((a,b) => b.timestamp.seconds - a.timestamp.seconds);
-
-                combinedHistory.forEach(record => {
-                    const card = document.createElement('div');
-                    const date = record.timestamp ? record.timestamp.toDate().toLocaleDateString() : 'Date not available';
-                    let header = '', notes = '', bgColor = '', borderColor = '', headerColor = '';
-    
-                    switch (record.type) {
-                        case 'return':
-                            header = `Returned from Loan ${record.loanId}`;
-                            const returnChecklist = record.checklist;
-                            notes = `
-                                <p><strong>Condition Good:</strong> ${returnChecklist.conditionGood}</p>
-                                <p><strong>Accessories Returned:</strong> ${returnChecklist.accessoriesReturned}</p>
-                                ${returnChecklist.notes ? `<p><strong>Notes:</strong> ${returnChecklist.notes}</p>` : ''}
-                            `;
-                            bgColor = 'bg-green-50'; borderColor = 'border-green-200'; headerColor = 'text-green-800';
-                            break;
-                        case 'loan_creation':
-                             header = `Loaned out in Loan ${record.loanId}`;
-                            const loanChecklist = record.checklist;
-                            notes = `
-                                <p><strong>Pre-Loan Condition Good:</strong> ${loanChecklist.conditionGood}</p>
-                                <p><strong>Pre-Loan Accessories Present:</strong> ${loanChecklist.accessoriesPresent}</p>
-                                ${loanChecklist.notes ? `<p><strong>Notes:</strong> ${loanChecklist.notes}</p>` : ''}
-                            `;
-                            bgColor = 'bg-gray-100'; borderColor = 'border-gray-200'; headerColor = 'text-gray-800';
-                            break;
-                        case 'add_to_loan':
-                            header = `Added to Loan ${record.loanId}`;
-                            notes = record.notes ? `<p><strong>Notes:</strong> ${record.notes}</p>` : '';
-                            bgColor = 'bg-blue-50'; borderColor = 'border-blue-200'; headerColor = 'text-blue-800';
-                            break;
-                        case 'loan_extended':
-                            header = `Loan Extended`;
-                             notes = record.notes || 'No details provided.';
-                            bgColor = 'bg-purple-50'; borderColor = 'border-purple-200'; headerColor = 'text-purple-800';
-                            break;
-                        case 'loan_edit': // Deprecated, but handled for old data
-                            header = 'Loan Edit';
-                            let detailsHtml = '';
-                            if (record.details) {
-                                if (record.details.returned && record.details.returned.length > 0) {
-                                    detailsHtml += `<p><strong>Returned:</strong> ${record.details.returned.join(', ')}</p>`;
-                                }
-                                if (record.details.added && record.details.added.length > 0) {
-                                    detailsHtml += `<p><strong>Added:</strong> ${record.details.added.join(', ')}</p>`;
-                                }
-                                if (record.details.extended !== 'No change') {
-                                    detailsHtml += `<p><strong>Loan Extended:</strong> ${record.details.extended}</p>`;
-                                }
-                            }
-                            notes = `<p><strong>Notes:</strong> ${record.notes || 'None'}</p>${detailsHtml}`;
-                            bgColor = 'bg-yellow-50'; borderColor = 'border-yellow-200'; headerColor = 'text-yellow-800';
-                            break;
-                        case 'maintenance':
-                        case 'status_change':
-                        case 'location_change':
-                            header = record.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()); // Capitalize words
-                            notes = record.notes || 'No details provided.';
-                            bgColor = 'bg-yellow-50'; borderColor = 'border-yellow-200'; headerColor = 'text-yellow-800';
-                            break;
-                        default:
-                           return;
+                const saveLocation = async () => {
+                    const newLocation = input.value.trim();
+                    if (newLocation === currentLocation) {
+                        const newP = document.createElement('p');
+                        newP.className = pElement.className;
+                        newP.textContent = `Location: ${currentLocation || 'N/A'}`;
+                        input.replaceWith(newP);
+                        // Re-add listener
+                        newP.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            makeGeneralItemLocationEditable(e.currentTarget, itemId, currentLocation);
+                        });
+                        return;
                     }
                     
-                    card.className = `${bgColor} p-4 rounded-lg border ${borderColor}`;
-                    card.innerHTML = `<div class="flex justify-between items-center"><p class="font-bold ${headerColor}">${header}</p><p class="text-sm font-medium">${date}</p></div><div class="mt-2 pt-2 border-t text-sm">${notes}</div>`;
-                    contentDiv.appendChild(card);
-                });
+                    try {
+                        await updateDoc(doc(db, generalItemsCollectionPath, itemId), { location: newLocation });
+                        showToast("Item location updated.");
+                        // The onSnapshot listener will handle re-rendering
+                    } catch (error) {
+                        showToast("Failed to update location.", true);
+                        // Revert on failure
+                        const newP = document.createElement('p');
+                        newP.className = pElement.className;
+                        newP.textContent = `Location: ${currentLocation || 'N/A'}`;
+                        input.replaceWith(newP);
+                    }
+                };
+
+                input.addEventListener('blur', saveLocation);
+                input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
             }
-            
-            function closeModal(modal) {
-                modal.style.display = 'none';
-                activeModal = { loan: null, kit: null, itemName: null, checklistData: null };
-            }
-    
+
+
+            // --- Start the application ---
             initialize();
         });
     </script>
