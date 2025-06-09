@@ -420,8 +420,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, collection, addDoc, onSnapshot, writeBatch, query, where, getDocs, updateDoc, deleteDoc, runTransaction, increment, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, collection, addDoc, onSnapshot, writeBatch, query, where, getDocs, updateDoc, deleteDoc, increment, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         document.addEventListener('DOMContentLoaded', () => {
 
@@ -431,17 +431,24 @@
             let allEquipmentMasterList = [];
             let activeModal = { loan: null, kit: null, itemName: null, checklistData: null, kitsToAdd: null };
             
-            // App-specific ID and Firebase configuration provided by the environment
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-            
+            // --- PASTE YOUR FIREBASE CONFIG HERE ---
+            const firebaseConfig = {
+               apiKey: "AIzaSyC5TJD1OHfDRaH8449-rTViuc1ihaPsUK0",
+  authDomain: "camera-equipment-hire-pma.firebaseapp.com",
+  projectId: "camera-equipment-hire-pma",
+  storageBucket: "camera-equipment-hire-pma.firebasestorage.app",
+  messagingSenderId: "263891339773",
+  appId: "1:263891339773:web:1b69db44cd3f683fdd3194",
+  measurementId: "G-X766QG03D3"
+            };
+            // --- END OF FIREBASE CONFIG ---
+
+
             // --- Firestore Collection Paths ---
-            const getCollectionPath = (collectionName) => `artifacts/${appId}/public/data/${collectionName}`;
-            const equipmentCollectionPath = getCollectionPath("equipment");
-            const loansCollectionPath = getCollectionPath("loans");
-            const historyCollectionPath = getCollectionPath("history");
-            const generalItemsCollectionPath = getCollectionPath("general_items");
+            const equipmentCollectionPath = "equipment";
+            const loansCollectionPath = "loans";
+            const historyCollectionPath = "history";
+            const generalItemsCollectionPath = "general_items";
             
             // --- Toast Notification Utility ---
             function showToast(message, isError = false) {
@@ -519,9 +526,9 @@
         
             // --- Initialization ---
             async function initialize() {
-                if (!firebaseConfig || !firebaseConfig.apiKey) {
-                    showToast("Firebase configuration is missing. App cannot start.", true);
-                    console.error("CRITICAL: Firebase config is missing or invalid.");
+                if (!firebaseConfig || firebaseConfig.apiKey === "YOUR_API_KEY") {
+                    showToast("Firebase configuration is missing. Please edit the HTML file.", true);
+                    console.error("CRITICAL: Firebase config is missing or invalid. Please paste your config from the Firebase console into the HTML file.");
                     return;
                 }
                 
@@ -554,16 +561,11 @@
 
             async function authenticate() {
                 try {
-                    if (initialAuthToken) {
-                        console.log("Signing in with custom token...");
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        console.log("No custom token found, signing in anonymously...");
-                        await signInAnonymously(auth);
-                    }
+                    console.log("Attempting to sign in anonymously...");
+                    await signInAnonymously(auth);
                 } catch (e) {
-                    console.error("Authentication failed:", e);
-                    showToast("Authentication failed. The app may not work correctly.", true);
+                    console.error("Anonymous sign-in failed:", e);
+                    showToast("Authentication failed. Check Firebase Anonymous Auth settings.", true);
                 }
             }
         
