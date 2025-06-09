@@ -71,7 +71,7 @@
                     <!-- Create New Loan Section -->
                     <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                         <h2 class="text-xl font-semibold mb-4">Create New Loan</h2>
-                        <p class="text-sm text-gray-600 mb-4">Select available kits and enter a Unique Loan ID from your offline records.</p>
+                        <p class="text-sm text-gray-600 mb-4">Click on an available kit from the list to begin the loan process.</p>
                         <div class="space-y-4">
                             <div>
                                 <label for="uniqueLoanId" class="block text-sm font-medium text-gray-700">Unique Loan ID</label>
@@ -89,9 +89,9 @@
                             </div>
                         </div>
                         <div class="mt-6">
-                            <h3 class="text-md font-medium text-gray-800">Kits Selected:</h3>
+                            <h3 class="text-md font-medium text-gray-800">Kits to be Loaned:</h3>
                             <div id="selectedForLoanList" class="mt-2 text-sm text-gray-600 border rounded-lg p-3 min-h-[50px]">
-                                <p>No kits selected.</p>
+                                <p>Click a kit from the right to add it to a loan.</p>
                             </div>
                         </div>
                         <div class="mt-6">
@@ -121,8 +121,8 @@
                                     <input type="text" id="kitCategory" placeholder="e.g., Camera, Tripod, Lighting" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                                 </div>
                                  <div>
-                                    <label for="kitItems" class="block text-sm font-medium text-gray-700">Items in Kit (comma-separated)</label>
-                                    <input type="text" id="kitItems" placeholder="e.g., Canon R5 Body, 50mm Lens, Battery" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                                    <label for="kitItems" class="block text-sm font-medium text-gray-700">Items in Kit (comma or newline separated)</label>
+                                    <textarea id="kitItems" placeholder="e.g., Canon R5 Body, 50mm Lens, Battery" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" rows="3"></textarea>
                                  </div>
                                 <div>
                                     <label for="kitLocation" class="block text-sm font-medium text-gray-700">Storage Location</label>
@@ -292,6 +292,14 @@
     <div id="preLoanChecklistModal" class="modal-backdrop modal-centered">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg m-4 animate-fade-in">
             <h2 id="preLoanChecklistTitle" class="text-2xl font-bold mb-4">Pre-Loan Checklist</h2>
+            
+            <div id="preLoanKitItemsContainer" class="mb-4">
+                <h3 class="text-md font-semibold text-gray-800 mb-2">Items in this Kit:</h3>
+                <div id="preLoanKitItemsList" class="space-y-1 text-sm text-gray-600 border rounded-lg p-3 bg-gray-50 max-h-32 overflow-y-auto">
+                    <!-- Kit items will be dynamically inserted here -->
+                </div>
+            </div>
+
             <form id="preLoanChecklistForm" class="space-y-3">
                  <div class="flex items-center justify-between">
                     <label class="text-sm font-medium">Condition good?</label>
@@ -324,10 +332,10 @@
     <div id="accessoryManagementModal" class="modal-backdrop">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg m-4 animate-fade-in">
             <div class="flex justify-between items-center mb-4">
-                 <h2 id="accessoryManagementTitle" class="text-2xl font-bold">Manage Kit Items</h2>
+                 <h2 id="accessoryManagementTitle" class="text-2xl font-bold">Manage Kit</h2>
                  <button id="accessoryManagementCloseBtn" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
             </div>
-            <div id="accessoryManagementList" class="space-y-3"></div>
+            <div id="accessoryManagementContent" class="space-y-4"></div>
         </div>
     </div>
 
@@ -427,19 +435,20 @@
 
             // --- App & Firebase State ---
             let db, auth, userId, isAuthReady = false;
-            let selectedItems = new Map(); // For new loans
+            let loanSelectedItems = new Map(); // For new loans
+            let bulkSelectedItems = new Map(); // For bulk actions
             let allEquipmentMasterList = [];
             let activeModal = { loan: null, kit: null, itemName: null, checklistData: null, kitsToAdd: null };
             
             // --- PASTE YOUR FIREBASE CONFIG HERE ---
             const firebaseConfig = {
-               apiKey: "AIzaSyC5TJD1OHfDRaH8449-rTViuc1ihaPsUK0",
-  authDomain: "camera-equipment-hire-pma.firebaseapp.com",
-  projectId: "camera-equipment-hire-pma",
-  storageBucket: "camera-equipment-hire-pma.firebasestorage.app",
-  messagingSenderId: "263891339773",
-  appId: "1:263891339773:web:1b69db44cd3f683fdd3194",
-  measurementId: "G-X766QG03D3"
+             apiKey: "AIzaSyC5TJD1OHfDRaH8449-rTViuc1ihaPsUK0",
+             authDomain: "camera-equipment-hire-pma.firebaseapp.com",
+             projectId: "camera-equipment-hire-pma",
+             storageBucket: "camera-equipment-hire-pma.appspot.com",
+             messagingSenderId: "263891339773",
+             appId: "1:263891339773:web:1b69db44cd3f683fdd3194",
+             measurementId: "G-X766QG03D3"
             };
             // --- END OF FIREBASE CONFIG ---
 
@@ -517,13 +526,13 @@
                     confirmInput.oninput = () => { confirmBtn.disabled = confirmInput.value !== activeModal.kit.code; };
                     openModal(document.getElementById('deleteConfirmModal'));
                 });
-                 
+                    
                 document.getElementById('bulkMoveBtn').addEventListener('click', () => {
-                    document.getElementById('bulkMoveModalTitle').textContent = `Bulk Move ${selectedItems.size} Kits`;
+                    document.getElementById('bulkMoveModalTitle').textContent = `Bulk Move ${bulkSelectedItems.size} Kits`;
                     openModal(document.getElementById('bulkMoveModal'));
                 });
             }
-        
+            
             // --- Initialization ---
             async function initialize() {
                 if (!firebaseConfig || firebaseConfig.apiKey === "YOUR_API_KEY") {
@@ -568,7 +577,7 @@
                     showToast("Authentication failed. Check Firebase Anonymous Auth settings.", true);
                 }
             }
-        
+            
             // --- Firebase Listeners ---
             function setupFirebaseListeners() {
                 if (!auth.currentUser) {
@@ -628,73 +637,96 @@
     
             function renderAvailableKitList() {
                 const selectedCategory = categoryFilter.value;
-                const filteredKits = allEquipmentMasterList.filter(kit => 
-                    kit.status === 'available' && 
+                const filteredKits = allEquipmentMasterList.filter(kit =>
+                    kit.status === 'available' &&
                     (selectedCategory === 'All Categories' || kit.category === selectedCategory)
                 );
-        
+
                 const availableListEl = document.getElementById('availableEquipmentList');
                 renderList(availableListEl, filteredKits, 'No available kits in this category.', (el, kit) => {
-                    const isSelected = selectedItems.has(kit.id);
+                    const isBulkSelected = bulkSelectedItems.has(kit.id);
                     const itemsNeedingAttention = (kit.items || []).some(i => i.status !== 'available');
-                    
+
                     const div = document.createElement('div');
                     div.id = `available-kit-${kit.id}`;
-                    div.className = `p-2 rounded-lg transition-colors ${isSelected ? 'bg-indigo-100' : 'hover:bg-gray-100'} ${itemsNeedingAttention ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`;
-                    
+                    div.className = `p-3 rounded-lg transition-colors border-b last:border-b-0 ${isBulkSelected ? 'bg-indigo-100' : 'hover:bg-gray-50'}`;
+
                     const categoryTag = kit.category ? `<span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-600 bg-blue-200">${kit.category}</span>` : '';
                     const maintWarning = itemsNeedingAttention ? `<p class="text-xs font-semibold text-red-600">Unavailable (Maintenance Required)</p>` : '';
+                    const headerClickableClass = !itemsNeedingAttention ? 'cursor-pointer' : 'cursor-not-allowed';
 
                     div.innerHTML = `
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center flex-grow pr-2">
-                                <input type="checkbox" class="select-checkbox h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-3" data-id="${kit.id}" ${isSelected ? 'checked' : ''} ${itemsNeedingAttention ? 'disabled' : ''}>
-                                <div>
-                                    <div class="flex items-center space-x-2">
-                                        <p class="font-medium text-gray-800">${kit.name}</p>
-                                        ${categoryTag}
+                        <div class="kit-main-action-area ${headerClickableClass}">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center flex-grow pr-2">
+                                    <input type="checkbox" class="select-checkbox h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-3 flex-shrink-0" data-id="${kit.id}" ${isBulkSelected ? 'checked' : ''} ${itemsNeedingAttention ? 'disabled' : ''}>
+                                    <div>
+                                        <div class="flex items-center space-x-2">
+                                            <p class="font-medium text-gray-800">${kit.name}</p>
+                                            ${categoryTag}
+                                        </div>
+                                        <p class="text-xs text-gray-500">${kit.code}</p>
+                                        <p class="text-xs text-gray-500">
+                                            Location: ${kit.location || 'Not set'}
+                                        </p>
+                                        ${maintWarning}
                                     </div>
-                                    <p class="text-xs text-gray-500">${kit.code}</p>
-                                    <p class="text-xs text-gray-500 kit-location-text ${!itemsNeedingAttention ? 'cursor-pointer hover:text-indigo-600' : ''}" data-kit-id="${kit.id}">
-                                        Location: ${kit.location || 'Not set'}
-                                    </p>
-                                    ${maintWarning}
+                                </div>
+                                <div class="flex flex-col space-y-1">
+                                    <button class="manage-btn text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold py-1 px-2 rounded-md">Manage</button>
+                                    <button class="history-btn text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-1 px-2 rounded-md">History</button>
                                 </div>
                             </div>
-                            <div class="flex flex-col space-y-1">
-                                <button class="manage-btn text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold py-1 px-2 rounded-md">Manage</button>
-                                <button class="history-btn text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-1 px-2 rounded-md">History</button>
-                            </div>
+                        </div>
+                        <div id="kit-items-${kit.id}" class="kit-item-list hidden border-t border-gray-200 mt-2 pt-2 ml-10 pl-2 pr-4 space-y-1">
+                            <!-- Items will be injected here -->
                         </div>`;
+                    
+                    el.appendChild(div);
+
+                    const kitMainArea = div.querySelector('.kit-main-action-area');
+                    const kitItemList = div.querySelector(`#kit-items-${kit.id}`);
+                    const checkbox = div.querySelector('.select-checkbox');
+
+                    const itemsHtml = (kit.items && kit.items.length > 0) ?
+                        kit.items.map(item => `
+                            <div class="text-sm text-gray-600 flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                <span>${item.name}</span>
+                            </div>`).join('') :
+                        '<p class="text-sm text-gray-500">No individual items listed for this kit.</p>';
+                    kitItemList.innerHTML = `<h4 class="text-xs font-semibold text-gray-500 mb-1">ITEMS IN KIT:</h4>${itemsHtml}`;
 
                     if (!itemsNeedingAttention) {
-                         const clickableArea = div.querySelector('.flex.items-center.flex-grow');
-                         clickableArea.addEventListener('click', (e) => {
-                             if (!e.target.closest('button, input[type="checkbox"], .kit-location-text')) {
-                                 handleSelection(kit);
-                             }
-                         });
-                         div.querySelector('.select-checkbox').addEventListener('click', (e) => {
-                             e.stopPropagation();
-                             handleSelection(kit);
-                         });
-                         div.querySelector('.kit-location-text').addEventListener('click', (e) => {
-                             e.stopPropagation();
-                             makeKitLocationEditable(e.target, kit.id, kit.location || '');
-                         });
+                         // Click on main area to select for loan OR expand items list
+                        kitMainArea.addEventListener('click', (e) => {
+                            if (!e.target.closest('button, input[type="checkbox"]')) {
+                                kitItemList.classList.toggle('hidden');
+                                // Only trigger loan selection if not already selected for a loan
+                                if (!loanSelectedItems.has(kit.id)) {
+                                    openPreLoanChecklistModal(kit);
+                                }
+                            }
+                        });
+
+                        // Click on checkbox for bulk selection
+                        checkbox.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            handleBulkSelection(kit);
+                        });
                     }
 
                     div.querySelector('.history-btn').addEventListener('click', (e) => { e.stopPropagation(); openHistoryModal(kit); });
                     div.querySelector('.manage-btn').addEventListener('click', (e) => { e.stopPropagation(); openKitManagementModal(kit); });
-                    el.appendChild(div);
                 });
                 updateBulkActionsVisibility();
             }
-            
+
+
             function renderSelectedForLoan() {
-                document.getElementById('createLoanBtn').disabled = selectedItems.size === 0;
+                document.getElementById('createLoanBtn').disabled = loanSelectedItems.size === 0;
                 const selectedListEl = document.getElementById('selectedForLoanList');
-                renderList(selectedListEl, Array.from(selectedItems.values()), 'No kits selected.', (el, itemData) => {
+                renderList(selectedListEl, Array.from(loanSelectedItems.values()), 'Click a kit from the right to add it to a loan.', (el, itemData) => {
                     const itemDiv = document.createElement('div');
                     itemDiv.className = 'flex items-center justify-between bg-indigo-50 p-2 rounded-md mb-2';
                     itemDiv.innerHTML = `
@@ -706,9 +738,8 @@
                     `;
                     itemDiv.querySelector('.remove-selection-btn').addEventListener('click', (e) => {
                         const kitId = e.currentTarget.dataset.id;
-                        selectedItems.delete(kitId);
+                        loanSelectedItems.delete(kitId);
                         renderSelectedForLoan();
-                        renderAvailableKitList();
                     });
                     el.appendChild(itemDiv);
                 });
@@ -824,10 +855,10 @@
             function updateBulkActionsVisibility() {
                 const bulkSelectCount = document.getElementById('bulkSelectCount');
                 const bulkActionsContainer = document.getElementById('bulkActions');
-                const hasSelections = selectedItems.size > 0;
+                const hasSelections = bulkSelectedItems.size > 0;
 
                 bulkActionsContainer.classList.toggle('hidden', !hasSelections);
-                bulkSelectCount.textContent = hasSelections ? `${selectedItems.size} selected` : '';
+                bulkSelectCount.textContent = hasSelections ? `${bulkSelectedItems.size} selected` : '';
             }
 
             // --- Handlers for User Actions ---
@@ -876,7 +907,7 @@
                     category = category.charAt(0).toUpperCase() + category.slice(1);
                 }
         
-                const items = itemsStr ? itemsStr.split(',').map(s => ({ name: s.trim(), status: 'available', notes: '' })).filter(a => a.name) : [];
+                const items = itemsStr ? itemsStr.split(/[\n,]+/).map(s => ({ name: s.trim(), status: 'available', notes: '' })).filter(a => a.name) : [];
                 try {
                     await addDoc(collection(db, equipmentCollectionPath), { name, code, category, items, status: 'available', location, createdAt: serverTimestamp() });
                     showToast("Kit added successfully!");
@@ -887,14 +918,13 @@
                 }
             }
 
-            function handleSelection(kit) {
-                if (selectedItems.has(kit.id)) {
-                    selectedItems.delete(kit.id);
-                    renderAvailableKitList();
-                    renderSelectedForLoan();
+            function handleBulkSelection(kit) {
+                if (bulkSelectedItems.has(kit.id)) {
+                    bulkSelectedItems.delete(kit.id);
                 } else {
-                    openPreLoanChecklistModal(kit);
+                    bulkSelectedItems.set(kit.id, kit);
                 }
+                renderAvailableKitList(); 
             }
 
             function handlePreLoanChecklistConfirm() {
@@ -906,20 +936,23 @@
                      notes: document.getElementById('preLoanNotes').value.trim()
                  };
 
-                 selectedItems.set(kit.id, { kit, checklistData });
+                 loanSelectedItems.set(kit.id, { kit, checklistData });
                  renderSelectedForLoan();
-                 renderAvailableKitList();
                  closeModal(document.getElementById('preLoanChecklistModal'));
              }
 
             async function confirmCreateLoan() {
                 const loanId = document.getElementById('uniqueLoanId').value.trim();
-                const dueDate = document.getElementById('dueDate').value;
-                const loanDate = document.getElementById('loanDate').value;
-                if(!loanId || !dueDate) return showToast("Unique Loan ID and Due Date are required.", true);
-                if (selectedItems.size === 0) return showToast("Please select at least one kit for the loan.", true);
+                const dueDateEl = document.getElementById('dueDate');
+                const loanDateEl = document.getElementById('loanDate');
                 
-                const kitsForLoan = Array.from(selectedItems.values()).map(item => ({
+                const dueDate = dueDateEl.valueAsDate ? dueDateEl.valueAsDate.toISOString().split('T')[0] : '';
+                const loanDate = loanDateEl.valueAsDate ? loanDateEl.valueAsDate.toISOString().split('T')[0] : '';
+
+                if(!loanId || !dueDate || !loanDate) return showToast("Unique Loan ID, Loan Date, and Due Date are required.", true);
+                if (loanSelectedItems.size === 0) return showToast("Please select at least one kit for the loan.", true);
+                
+                const kitsForLoan = Array.from(loanSelectedItems.values()).map(item => ({
                     id: item.kit.id,
                     name: item.kit.name,
                     code: item.kit.code,
@@ -939,7 +972,6 @@
                         createdAt: serverTimestamp()
                     });
                     
-                    // Update status of each kit and create history records
                     kitsForLoan.forEach(kit => {
                         const kitDocRef = doc(db, equipmentCollectionPath, kit.id);
                         batch.update(kitDocRef, { status: 'on_loan' });
@@ -958,7 +990,7 @@
                     
                     ['uniqueLoanId', 'dueDate'].forEach(id => document.getElementById(id).value = '');
                     document.getElementById('loanDate').valueAsDate = new Date();
-                    selectedItems.clear();
+                    loanSelectedItems.clear();
                     renderSelectedForLoan();
                     renderAvailableKitList();
                     showToast("Loan created successfully!");
@@ -1020,12 +1052,12 @@
             async function handleBulkMove() {
                  const newLocation = document.getElementById('bulkMoveLocation').value.trim();
                  if (!newLocation) return showToast("Please enter a new location.", true);
-                 if (selectedItems.size === 0) return showToast("No items selected for bulk move.", true);
+                 if (bulkSelectedItems.size === 0) return showToast("No items selected for bulk move.", true);
 
                  const batch = writeBatch(db);
                  const historyNote = `Bulk moved to "${newLocation}".`;
 
-                 selectedItems.forEach((itemData, kitId) => {
+                 bulkSelectedItems.forEach((kit, kitId) => {
                      const kitDocRef = doc(db, equipmentCollectionPath, kitId);
                      batch.update(kitDocRef, { location: newLocation });
 
@@ -1033,7 +1065,7 @@
                      batch.set(historyDocRef, {
                          type: 'location_change',
                          kitId: kitId,
-                         kitName: itemData.kit.name,
+                         kitName: kit.name,
                          notes: historyNote,
                          timestamp: serverTimestamp()
                      });
@@ -1041,8 +1073,8 @@
 
                  try {
                      await batch.commit();
-                     showToast(`Successfully moved ${selectedItems.size} kits.`);
-                     selectedItems.clear();
+                     showToast(`Successfully moved ${bulkSelectedItems.size} kits.`);
+                     bulkSelectedItems.clear();
                      renderAvailableKitList();
                      closeModal(document.getElementById('bulkMoveModal'));
                  } catch (error) {
@@ -1095,7 +1127,6 @@
                 
                 const batch = writeBatch(db);
 
-                // If all kits are returned, the loan is completed and deleted.
                 if (finalKitsOnLoan.length === 0) {
                     batch.delete(loanDocRef);
                     kitsToReturn.forEach((kit, kitId) => {
@@ -1115,8 +1146,6 @@
                     return;
                 }
 
-                // Otherwise, update the loan and log individual changes.
-                // Log date change for kits that are remaining on the loan
                 if (newDueDate !== loan.dueDate) {
                     finalKitsOnLoan.forEach(kit => {
                          batch.set(doc(collection(db, historyCollectionPath)), {
@@ -1129,7 +1158,6 @@
                     });
                 }
 
-                // Log returned kits
                 kitsToReturn.forEach((kit, kitId) => {
                     batch.update(doc(db, equipmentCollectionPath, kitId), { status: 'available' });
                     batch.set(doc(collection(db, historyCollectionPath)), {
@@ -1141,7 +1169,6 @@
                     });
                 });
 
-                // Log added kits
                 newKitsToAdd.forEach(kit => {
                     batch.update(doc(db, equipmentCollectionPath, kit.id), { status: 'on_loan' });
                      batch.set(doc(collection(db, historyCollectionPath)), {
@@ -1153,7 +1180,6 @@
                     });
                 });
                 
-                // Update the loan document
                 batch.update(loanDocRef, {
                     dueDate: newDueDate,
                     kits: finalKitsOnLoan,
@@ -1195,12 +1221,57 @@
                 }
             }
 
+            async function handleUpdateKitLocation(kit) {
+                const newLocation = document.getElementById('manageKitLocationInput').value.trim();
+                const currentLocation = kit.location || '';
+
+                if (newLocation === currentLocation) {
+                    return showToast("Location is unchanged.", false);
+                }
+
+                try {
+                    const batch = writeBatch(db);
+                    const kitDocRef = doc(db, equipmentCollectionPath, kit.id);
+                    batch.update(kitDocRef, { location: newLocation });
+
+                    const historyDocRef = doc(collection(db, historyCollectionPath));
+                    batch.set(historyDocRef, {
+                        type: 'location_change',
+                        kitId: kit.id,
+                        kitName: kit.name,
+                        notes: `Location changed from "${currentLocation || 'Not set'}" to "${newLocation}".`,
+                        timestamp: serverTimestamp()
+                    });
+
+                    await batch.commit();
+                    showToast("Kit location updated successfully.");
+                    closeModal(document.getElementById('accessoryManagementModal'));
+                } catch (error) {
+                    console.error("Error updating kit location:", error);
+                    showToast("Failed to update kit location.", true);
+                }
+            }
+
 
             // --- Modal Opening Functions ---
             function openPreLoanChecklistModal(kit) {
                 activeModal.kit = kit;
                 document.getElementById('preLoanChecklistTitle').textContent = `Pre-Loan Checklist: ${kit.name}`;
                 document.getElementById('preLoanChecklistForm').reset();
+
+                const itemsListEl = document.getElementById('preLoanKitItemsList');
+                itemsListEl.innerHTML = '';
+
+                if (kit.items && kit.items.length > 0) {
+                    kit.items.forEach(item => {
+                        const itemEl = document.createElement('p');
+                        itemEl.textContent = item.name;
+                        itemsListEl.appendChild(itemEl);
+                    });
+                } else {
+                    itemsListEl.innerHTML = '<p class="text-gray-500">No individual items listed for this kit.</p>';
+                }
+
                 openModal(document.getElementById('preLoanChecklistModal'));
             }
 
@@ -1226,7 +1297,7 @@
                 document.getElementById('editLoanModalTitle').textContent = `Edit Loan: ${loan.loanId}`;
                 document.getElementById('newDueDate').value = loan.dueDate;
                 document.getElementById('editLoanNotes').value = '';
-                activeModal.kitsToAdd = new Map(); // Reset on open
+                activeModal.kitsToAdd = new Map();
 
                 const currentItemsContainer = document.getElementById('editLoanCurrentItems');
                 currentItemsContainer.innerHTML = '';
@@ -1275,66 +1346,86 @@
                 activeModal.kit = kit;
                 const modal = document.getElementById('accessoryManagementModal');
                 const titleEl = document.getElementById('accessoryManagementTitle');
-                const listEl = document.getElementById('accessoryManagementList');
+                const contentEl = document.getElementById('accessoryManagementContent');
                 
-                titleEl.textContent = `Manage Items for ${kit.name}`;
-                listEl.innerHTML = '';
+                titleEl.textContent = `Manage Kit: ${kit.name}`;
+                contentEl.innerHTML = '';
 
+                const itemStatusDiv = document.createElement('div');
+                itemStatusDiv.innerHTML = `<h3 class="text-lg font-semibold mb-2">Item Status</h3>`;
+                const listEl = document.createElement('div');
+                listEl.className = 'space-y-3';
+                
                 if (!kit.items || kit.items.length === 0) {
                     listEl.innerHTML = '<p class="text-gray-500">This kit has no individual items listed.</p>';
-                    openModal(modal);
-                    return;
+                } else {
+                    kit.items.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'p-3 bg-gray-50 rounded-md border flex items-center justify-between';
+                        
+                        let statusBadge = '';
+                        if (item.status === 'missing') {
+                            statusBadge = '<span class="text-xs font-semibold text-red-600">Missing</span>';
+                        } else if (item.status === 'under_maintenance') {
+                            statusBadge = '<span class="text-xs font-semibold text-orange-600">Maintenance</span>';
+                        }
+
+                        div.innerHTML = `
+                            <div>
+                                <p class="font-medium">${item.name} ${statusBadge}</p>
+                                ${item.notes ? `<p class="text-xs text-gray-500">Notes: ${item.notes}</p>` : ''}
+                            </div>
+                            <div class="flex space-x-2">
+                                <button data-item-name="${item.name}" class="maint-btn text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold py-1 px-2 rounded-md">Maint.</button>
+                                <button data-item-name="${item.name}" class="miss-btn text-xs bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-1 px-2 rounded-md">Missing</button>
+                            </div>
+                        `;
+
+                        div.querySelector('.maint-btn').addEventListener('click', (e) => {
+                            const itemName = e.target.dataset.itemName;
+                            activeModal.itemName = itemName;
+                            const directActionModal = document.getElementById('directActionModal');
+                            document.getElementById('directActionModalTitle').textContent = `Set "${itemName}" to Maintenance`;
+                            document.getElementById('directActionNotes').value = '';
+                            const confirmBtn = document.getElementById('directActionConfirmBtn');
+                            confirmBtn.textContent = 'Set to Maintenance';
+                            confirmBtn.className = 'bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-orange-700';
+                            openModal(directActionModal);
+                        });
+                        
+                        div.querySelector('.miss-btn').addEventListener('click', (e) => {
+                            const itemName = e.target.dataset.itemName;
+                            activeModal.itemName = itemName;
+                            const directActionModal = document.getElementById('directActionModal');
+                            document.getElementById('directActionModalTitle').textContent = `Mark "${itemName}" as Missing`;
+                            document.getElementById('directActionNotes').value = '';
+                            const confirmBtn = document.getElementById('directActionConfirmBtn');
+                            confirmBtn.textContent = 'Mark as Missing';
+                            confirmBtn.className = 'bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700';
+                            openModal(directActionModal);
+                        });
+                        listEl.appendChild(div);
+                    });
                 }
+                itemStatusDiv.appendChild(listEl);
+                contentEl.appendChild(itemStatusDiv);
 
-                kit.items.forEach(item => {
-                    const div = document.createElement('div');
-                    div.className = 'p-3 bg-gray-50 rounded-md border flex items-center justify-between';
-                    
-                    let statusBadge = '';
-                    if (item.status === 'missing') {
-                        statusBadge = '<span class="text-xs font-semibold text-red-600">Missing</span>';
-                    } else if (item.status === 'under_maintenance') {
-                        statusBadge = '<span class="text-xs font-semibold text-orange-600">Maintenance</span>';
-                    }
+                const locationManagementDiv = document.createElement('div');
+                locationManagementDiv.className = 'mt-4 pt-4 border-t';
+                locationManagementDiv.innerHTML = `
+                    <h3 class="text-lg font-semibold mb-2">Update Location</h3>
+                    <div class="flex items-center space-x-2">
+                        <input type="text" id="manageKitLocationInput" class="w-full p-2 border border-gray-300 rounded-md" value="${kit.location || ''}" placeholder="e.g., Storeroom A, Shelf 3">
+                        <button id="updateKitLocationBtn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 whitespace-nowrap">Update</button>
+                    </div>
+                `;
+                contentEl.appendChild(locationManagementDiv);
 
-                    div.innerHTML = `
-                        <div>
-                            <p class="font-medium">${item.name} ${statusBadge}</p>
-                            ${item.notes ? `<p class="text-xs text-gray-500">Notes: ${item.notes}</p>` : ''}
-                        </div>
-                        <div class="flex space-x-2">
-                            <button data-item-name="${item.name}" class="maint-btn text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold py-1 px-2 rounded-md">Maint.</button>
-                            <button data-item-name="${item.name}" class="miss-btn text-xs bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-1 px-2 rounded-md">Missing</button>
-                        </div>
-                    `;
+                contentEl.querySelector('#updateKitLocationBtn').addEventListener('click', () => handleUpdateKitLocation(kit));
 
-                    div.querySelector('.maint-btn').addEventListener('click', (e) => {
-                        const itemName = e.target.dataset.itemName;
-                        activeModal.itemName = itemName;
-                        const directActionModal = document.getElementById('directActionModal');
-                        document.getElementById('directActionModalTitle').textContent = `Set "${itemName}" to Maintenance`;
-                        document.getElementById('directActionNotes').value = '';
-                        const confirmBtn = document.getElementById('directActionConfirmBtn');
-                        confirmBtn.textContent = 'Set to Maintenance';
-                        confirmBtn.className = 'bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-orange-700';
-                        openModal(directActionModal);
-                    });
-                    
-                    div.querySelector('.miss-btn').addEventListener('click', (e) => {
-                        const itemName = e.target.dataset.itemName;
-                        activeModal.itemName = itemName;
-                        const directActionModal = document.getElementById('directActionModal');
-                        document.getElementById('directActionModalTitle').textContent = `Mark "${itemName}" as Missing`;
-                        document.getElementById('directActionNotes').value = '';
-                        const confirmBtn = document.getElementById('directActionConfirmBtn');
-                        confirmBtn.textContent = 'Mark as Missing';
-                        confirmBtn.className = 'bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700';
-                        openModal(directActionModal);
-                    });
-                    listEl.appendChild(div);
-                });
                 openModal(modal);
             }
+
 
             async function openHistoryModal(kit) {
                  activeModal.kit = kit;
@@ -1379,32 +1470,6 @@
                  }
              }
 
-            async function makeKitLocationEditable(pElement, kitId, currentLocation) {
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = currentLocation;
-                input.className = 'w-full text-xs p-1 border border-indigo-300 rounded-md';
-                pElement.replaceWith(input);
-                input.focus();
-
-                const saveLocation = async () => {
-                    const newLocation = input.value.trim();
-                    if (newLocation === currentLocation) {
-                         renderAvailableKitList();
-                         return;
-                    }
-                    try {
-                        await updateDoc(doc(db, equipmentCollectionPath, kitId), { location: newLocation });
-                        showToast("Kit location updated.");
-                    } catch (error) {
-                        showToast("Failed to update kit location.", true);
-                    }
-                };
-
-                input.addEventListener('blur', saveLocation);
-                input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
-            }
-
             async function makeGeneralItemLocationEditable(pElement, itemId, currentLocation) {
                 const input = document.createElement('input');
                 input.type = 'text';
@@ -1416,29 +1481,15 @@
                 const saveLocation = async () => {
                     const newLocation = input.value.trim();
                     if (newLocation === currentLocation) {
-                        const newP = document.createElement('p');
-                        newP.className = pElement.className;
-                        newP.textContent = `Location: ${currentLocation || 'N/A'}`;
-                        input.replaceWith(newP);
-                        // Re-add listener
-                        newP.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            makeGeneralItemLocationEditable(e.currentTarget, itemId, currentLocation);
-                        });
-                        return;
+                         input.blur();
+                         return;
                     }
                     
                     try {
                         await updateDoc(doc(db, generalItemsCollectionPath, itemId), { location: newLocation });
                         showToast("Item location updated.");
-                        // The onSnapshot listener will handle re-rendering
                     } catch (error) {
                         showToast("Failed to update location.", true);
-                        // Revert on failure
-                        const newP = document.createElement('p');
-                        newP.className = pElement.className;
-                        newP.textContent = `Location: ${currentLocation || 'N/A'}`;
-                        input.replaceWith(newP);
                     }
                 };
 
